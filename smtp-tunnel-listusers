@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""
+SMTP Tunnel - List Users Script
+
+Shows all configured users.
+
+Version: 1.1.0
+"""
+
+import argparse
+import os
+import sys
+
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from common import load_users
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='List all SMTP Tunnel users',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('--users-file', '-u', default='users.yaml', help='Users file (default: users.yaml)')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed information')
+
+    args = parser.parse_args()
+
+    # Get base directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Load users
+    users_file = args.users_file
+    if not os.path.isabs(users_file):
+        users_file = os.path.join(base_dir, users_file)
+
+    users = load_users(users_file)
+
+    if not users:
+        print("No users configured")
+        print(f"Use smtp-tunnel-adduser to add users")
+        return 0
+
+    print(f"Users ({len(users)}):")
+    print("-" * 60)
+
+    for username, user in sorted(users.items()):
+        if args.verbose:
+            print(f"\n  {username}:")
+            print(f"    Secret: {user.secret[:8]}...{user.secret[-4:]}")
+            if user.whitelist:
+                print(f"    Whitelist: {', '.join(user.whitelist)}")
+            else:
+                print(f"    Whitelist: (any IP)")
+            print(f"    Logging: {'enabled' if user.logging else 'disabled'}")
+        else:
+            whitelist_info = f" [{len(user.whitelist)} IPs]" if user.whitelist else ""
+            logging_info = " [no-log]" if not user.logging else ""
+            print(f"  {username}{whitelist_info}{logging_info}")
+
+    if not args.verbose:
+        print()
+        print("Use -v for detailed information")
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

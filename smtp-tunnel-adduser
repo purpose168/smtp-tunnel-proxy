@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""
+SMTP Tunnel - Add User Script
+
+Creates a new user and generates a client package (ZIP file).
+
+Version: 1.1.0
+"""
+
+import argparse
+import os
+import sys
+import secrets
+import zipfile
+import tempfile
+import shutil
+
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from common import load_users, save_users, load_config, UserConfig
+
+
+def generate_secret() -> str:
+    """Generate a secure random secret."""
+    return secrets.token_urlsafe(32)
+
+
+def create_client_config(server_host: str, server_port: int, username: str, secret: str) -> str:
+    """Generate client config.yaml content."""
+    return f"""# SMTP Tunnel Client Configuration
+# Generated for user: {username}
+
+client:
+  # Server connection
+  server_host: "{server_host}"
+  server_port: {server_port}
+
+  # Authentication
+  username: "{username}"
+  secret: "{secret}"
+
+  # Local SOCKS5 proxy
+  socks_port: 1080
+  socks_host: "127.0.0.1"
+
+  # CA certificate for server verification
+  ca_cert: "ca.crt"
+"""
+
+
+def create_client_package(
+    username: str,
+    secret: str,
+    server_host: str,
+    server_port: int,
+    base_dir: str,
+    output_dir: str
+) -> str:
+    """
+    Create a ZIP package with everything the client needs.
+
+    Returns:
+        Path to the created ZIP file
+    """
+    # Files to include from base directory
+    client_files = ['client.py', 'common.py', 'requirements.txt']
+
+    # Check for ca.crt
+    ca_cert_path = os.path.join(base_dir, 'ca.crt')
+    has_ca_cert = os.path.exists(ca_cert_path)
+
+    # Create temporary directory for package
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pkg_dir = os.path.join(tmpdir, username)
+        os.makedirs(pkg_dir)
+
+        # Copy client files
+        for filename in client_files:
+            src = os.path.join(base_dir, filename)
+            if os.path.exists(src):
+                shutil.copy(src, pkg_dir)
+            else:
+                print(f"Warning: {filename} not found, skipping")
+
+        # Copy CA certificate if exists
+        if has_ca_cert:
+            shutil.copy(ca_cert_path, pkg_dir)
+        else:
+            print("Warning: ca.crt not found - client will not be able to verify server")
+
+        # Generate client config
+        config_content = create_client_config(server_host, server_port, username, secret)
+        config_path = os.path.join(pkg_dir, 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(config_content)
+
+        # Create README for the user
+        readme_content = f"""# SMTP Tunnel Client - {username}
+
+## Quick Start
+
+1. Install dependencies:
+   pip install -r requirements.txt
+
+2. Run the client:
+   python client.py
+
+3. Configure your browser/apps to use SOCKS5 proxy:
+   Host: 127.0.0.1
+   Port: 1080
+
+## Files
+
+- client.py      - The tunnel client
+- common.py      - Shared library
+- config.yaml    - Your configuration (pre-configured)
+- ca.crt         - Server certificate for verification
+- requirements.txt - Python dependencies
+
+## Test Connection
+
+curl -x socks5h://127.0.0.1:1080 https://ifconfig.me
+"""
+        readme_path = os.path.join(pkg_dir, 'README.txt')
+        with open(readme_path, 'w') as f:
+            f.write(readme_content)
+
+        # Create ZIP file
+        zip_filename = f"{username}.zip"
+        zip_path = os.path.join(output_dir, zip_filename)
+
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(pkg_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, tmpdir)
+                    zipf.write(file_path, arcname)
+
+        return zip_path
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Add a new user to SMTP Tunnel',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s alice                    # Add user 'alice' with auto-generated secret
+  %(prog)s bob --secret mysecret    # Add user 'bob' with specific secret
+  %(prog)s carol --whitelist 1.2.3.4 --whitelist 10.0.0.0/8
+  %(prog)s dave --no-logging        # Add user without logging
+"""
+    )
+    parser.add_argument('username', help='Username to add')
+    parser.add_argument('--secret', '-s', default=None, help='Secret (auto-generated if not provided)')
+    parser.add_argument('--whitelist', '-w', action='append', default=[], help='IP whitelist (can specify multiple)')
+    parser.add_argument('--no-logging', action='store_true', help='Disable logging for this user')
+    parser.add_argument('--users-file', '-u', default='users.yaml', help='Users file (default: users.yaml)')
+    parser.add_argument('--config', '-c', default='config.yaml', help='Server config file (default: config.yaml)')
+    parser.add_argument('--output-dir', '-o', default='.', help='Output directory for ZIP file (default: current)')
+    parser.add_argument('--no-package', action='store_true', help='Do not generate client ZIP package')
+
+    args = parser.parse_args()
+
+    # Get base directory (where this script is located)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Load existing users
+    users_file = args.users_file
+    if not os.path.isabs(users_file):
+        users_file = os.path.join(base_dir, users_file)
+
+    users = load_users(users_file)
+
+    # Check if user already exists
+    if args.username in users:
+        print(f"Error: User '{args.username}' already exists")
+        return 1
+
+    # Generate secret if not provided
+    secret = args.secret or generate_secret()
+
+    # Create user config
+    user = UserConfig(
+        username=args.username,
+        secret=secret,
+        whitelist=args.whitelist if args.whitelist else [],
+        logging=not args.no_logging
+    )
+
+    # Add user
+    users[args.username] = user
+
+    # Save users file
+    save_users(users_file, users)
+    print(f"User '{args.username}' added to {users_file}")
+
+    # Generate client package
+    if not args.no_package:
+        # Load server config to get hostname and port
+        config_file = args.config
+        if not os.path.isabs(config_file):
+            config_file = os.path.join(base_dir, config_file)
+
+        try:
+            config_data = load_config(config_file)
+            server_conf = config_data.get('server', {})
+            server_host = server_conf.get('hostname', 'localhost')
+            server_port = server_conf.get('port', 587)
+        except FileNotFoundError:
+            print(f"Warning: Config file {config_file} not found, using defaults")
+            server_host = 'localhost'
+            server_port = 587
+
+        output_dir = args.output_dir
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.join(os.getcwd(), output_dir)
+
+        zip_path = create_client_package(
+            username=args.username,
+            secret=secret,
+            server_host=server_host,
+            server_port=server_port,
+            base_dir=base_dir,
+            output_dir=output_dir
+        )
+
+        print(f"Client package created: {zip_path}")
+        print()
+        print("Send this ZIP file to the user. They just need to:")
+        print("  1. Extract the ZIP")
+        print("  2. pip install -r requirements.txt")
+        print("  3. python client.py")
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

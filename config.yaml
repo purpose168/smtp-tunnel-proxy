@@ -1,0 +1,70 @@
+# SMTP Tunnel Configuration
+# Copy this file and customize for your setup
+
+# ============================================================================
+# Server Configuration (for server.py)
+# ============================================================================
+server:
+  # Listen address (0.0.0.0 for all interfaces)
+  host: "0.0.0.0"
+
+  # SMTP submission port (587 is standard)
+  port: 587
+
+  # Hostname to advertise in SMTP greeting
+  # Use a realistic hostname that matches your server's DNS
+  hostname: "mail.example.com"
+
+  # TLS certificate and key files
+  # Generate with: python generate_certs.py --hostname mail.example.com
+  cert_file: "server.crt"
+  key_file: "server.key"
+
+  # Users configuration file
+  # Contains user secrets, IP whitelists, and logging settings
+  users_file: "users.yaml"
+
+  # Global logging setting (can be overridden per-user)
+  log_users: true
+
+# ============================================================================
+# Client Configuration (for client.py)
+# This section is used when generating client packages
+# ============================================================================
+client:
+  # Tunnel server domain name (FQDN required for certificate verification)
+  # Use a domain name, not an IP address - see README for free DNS options
+  server_host: "mail.example.com"
+
+  # Tunnel server port
+  server_port: 587
+
+  # Local SOCKS5 proxy port
+  socks_port: 1080
+
+  # Local SOCKS5 bind address (127.0.0.1 = localhost only)
+  socks_host: "127.0.0.1"
+
+  # Username and secret are set per-user in generated client configs
+  # username: "set-by-adduser"
+  # secret: "set-by-adduser"
+
+  # CA certificate for server verification (RECOMMENDED for security)
+  ca_cert: "ca.crt"
+
+# ============================================================================
+# Stealth Configuration (DPI Evasion) - Optional
+# ============================================================================
+stealth:
+  # Random delay range between messages (milliseconds)
+  min_delay_ms: 50
+  max_delay_ms: 500
+
+  # Pad messages to these sizes (bytes)
+  pad_to_sizes:
+    - 4096
+    - 8192
+    - 16384
+
+  # Probability of sending dummy (empty) messages
+  dummy_message_probability: 0.1

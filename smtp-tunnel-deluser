@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""
+SMTP Tunnel - Delete User Script
+
+Removes a user from the users configuration.
+
+Version: 1.1.0
+"""
+
+import argparse
+import os
+import sys
+
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from common import load_users, save_users
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Remove a user from SMTP Tunnel',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s alice              # Remove user 'alice'
+  %(prog)s bob --force        # Remove without confirmation
+"""
+    )
+    parser.add_argument('username', help='Username to remove')
+    parser.add_argument('--users-file', '-u', default='users.yaml', help='Users file (default: users.yaml)')
+    parser.add_argument('--force', '-f', action='store_true', help='Do not ask for confirmation')
+
+    args = parser.parse_args()
+
+    # Get base directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Load existing users
+    users_file = args.users_file
+    if not os.path.isabs(users_file):
+        users_file = os.path.join(base_dir, users_file)
+
+    users = load_users(users_file)
+
+    # Check if user exists
+    if args.username not in users:
+        print(f"Error: User '{args.username}' not found")
+        return 1
+
+    # Confirm deletion
+    if not args.force:
+        response = input(f"Delete user '{args.username}'? [y/N]: ").strip().lower()
+        if response != 'y':
+            print("Cancelled")
+            return 0
+
+    # Remove user
+    del users[args.username]
+
+    # Save users file
+    save_users(users_file, users)
+    print(f"User '{args.username}' removed")
+
+    # Remind about ZIP files
+    zip_file = f"{args.username}.zip"
+    if os.path.exists(zip_file):
+        print(f"Note: Client package '{zip_file}' still exists - delete manually if needed")
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

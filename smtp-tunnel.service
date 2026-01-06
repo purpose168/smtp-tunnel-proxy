@@ -1,0 +1,23 @@
+[Unit]
+Description=SMTP Tunnel Server
+Documentation=https://github.com/user/smtp-tunnel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/smtp-tunnel
+ExecStart=/usr/bin/python3 /opt/smtp-tunnel/server.py -c /etc/smtp-tunnel/config.yaml
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening (optional)
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=true
+# ReadWritePaths=/etc/smtp-tunnel
+
+[Install]
+WantedBy=multi-user.target
