@@ -2,7 +2,7 @@
 SMTP Tunnel - Common Protocol and Utilities
 Shared components for both client and server.
 
-Version: 1.1.0
+Version: 1.2.0
 """
 
 import struct

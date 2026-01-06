@@ -5,7 +5,7 @@
 # One-liner installation:
 #   curl -sSL https://raw.githubusercontent.com/x011/smtp-tunnel-proxy/main/install.sh | sudo bash
 #
-# Version: 1.1.0
+# Version: 1.2.0
 
 # Colors for output
 RED='\033[0;31m'
@@ -426,7 +426,7 @@ main() {
     echo ""
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}  SMTP Tunnel Proxy Installer${NC}"
-    echo -e "${GREEN}  Version 1.1.0${NC}"
+    echo -e "${GREEN}  Version 1.2.0${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
 

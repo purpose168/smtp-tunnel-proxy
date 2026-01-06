@@ -721,6 +721,6 @@ Both client and server use Python's `asyncio` for efficient handling of multiple
 
 ## 📋 Version Information
 
-- **Current Version:** 1.1.0
+- **Current Version:** 1.2.0
 - **Protocol Version:** Binary streaming v1
 - **Minimum Python:** 3.8
