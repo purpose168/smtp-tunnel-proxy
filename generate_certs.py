@@ -16,6 +16,7 @@ from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
 
 def generate_private_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
@@ -23,6 +24,7 @@ def generate_private_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
     return rsa.generate_private_key(
         public_exponent=65537,
         key_size=key_size,
+        backend=default_backend(),
     )
 
 
@@ -66,7 +68,7 @@ def generate_ca_certificate(
             ),
             critical=True,
         )
-        .sign(private_key, hashes.SHA256())
+        .sign(private_key, hashes.SHA256(), default_backend())
     )
 
     return cert
@@ -77,7 +79,7 @@ def generate_server_certificate(
     ca_cert: x509.Certificate,
     server_key: rsa.RSAPrivateKey,
     hostname: str = "mail.example.com",
-    days_valid: int = 365
+    days_valid: int = 1095
 ) -> x509.Certificate:
     """
     Generate server certificate signed by CA.
@@ -132,7 +134,7 @@ def generate_server_certificate(
             ]),
             critical=False,
         )
-        .sign(ca_key, hashes.SHA256())
+        .sign(ca_key, hashes.SHA256(), default_backend())
     )
 
     return cert
@@ -187,8 +189,8 @@ def main():
     parser.add_argument(
         '--days',
         type=int,
-        default=365,
-        help='Certificate validity in days (default: 365)'
+        default=1095,
+        help='Certificate validity in days (default: 1095 = 3 years)'
     )
     parser.add_argument(
         '--key-size',
