@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.backends import default_backend
 
 
 # ============================================================================
@@ -182,6 +183,7 @@ class TunnelCrypto:
             length=64,  # 32 bytes for each direction
             salt=b'smtp-tunnel-v1',
             info=b'tunnel-keys',
+            backend=default_backend(),
         )
         key_material = hkdf.derive(self.secret)
 
@@ -346,7 +348,7 @@ class TunnelCrypto:
             logger.warning(f"Auth: HMAC mismatch for user '{username}'")
             return False, None
         except Exception as e:
-            logger.debug(f"Auth: Exception - {e}")
+            logger.warning(f"Auth: Exception - {e}")
             return False, None
 
 
