@@ -317,8 +317,8 @@ Examples:
     parser.add_argument('--secret', '-s', default=None, help='Secret (auto-generated if not provided)')
     parser.add_argument('--whitelist', '-w', action='append', default=[], help='IP whitelist (can specify multiple)')
     parser.add_argument('--no-logging', action='store_true', help='Disable logging for this user')
-    parser.add_argument('--users-file', '-u', default='users.yaml', help='Users file (default: users.yaml)')
-    parser.add_argument('--config', '-c', default='config.yaml', help='Server config file (default: config.yaml)')
+    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='Users file (default: /etc/smtp-tunnel/users.yaml)')
+    parser.add_argument('--config', '-c', default='/etc/smtp-tunnel/config.yaml', help='Server config file (default: /etc/smtp-tunnel/config.yaml)')
     parser.add_argument('--output-dir', '-o', default='.', help='Output directory for ZIP file (default: current)')
     parser.add_argument('--no-package', action='store_true', help='Do not generate client ZIP package')
 

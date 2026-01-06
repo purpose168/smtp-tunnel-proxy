@@ -332,9 +332,7 @@ EOF
             print_step "Creating user '$FIRST_USER'..."
 
             cd "$INSTALL_DIR"
-            if python3 smtp-tunnel-adduser "$FIRST_USER" \
-                -u "$CONFIG_DIR/users.yaml" \
-                -c "$CONFIG_DIR/config.yaml"; then
+            if python3 smtp-tunnel-adduser "$FIRST_USER"; then
                 echo ""
                 print_info "User '$FIRST_USER' created successfully!"
                 print_info "Client package: $INSTALL_DIR/${FIRST_USER}.zip"

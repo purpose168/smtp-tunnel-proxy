@@ -28,7 +28,7 @@ Examples:
 """
     )
     parser.add_argument('username', help='Username to remove')
-    parser.add_argument('--users-file', '-u', default='users.yaml', help='Users file (default: users.yaml)')
+    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='Users file (default: /etc/smtp-tunnel/users.yaml)')
     parser.add_argument('--force', '-f', action='store_true', help='Do not ask for confirmation')
 
     args = parser.parse_args()

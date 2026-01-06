@@ -22,7 +22,7 @@ def main():
         description='List all SMTP Tunnel users',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('--users-file', '-u', default='users.yaml', help='Users file (default: users.yaml)')
+    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='Users file (default: /etc/smtp-tunnel/users.yaml)')
     parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed information')
 
     args = parser.parse_args()
