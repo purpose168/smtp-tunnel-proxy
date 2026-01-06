@@ -282,13 +282,21 @@ class TunnelClient:
 
     async def send_frame(self, frame_type: int, channel_id: int, payload: bytes = b''):
         """Send frame to server."""
+        if not self.connected or not self.writer:
+            return
         async with self.write_lock:
-            frame = make_frame(frame_type, channel_id, payload)
-            self.writer.write(frame)
-            await self.writer.drain()
+            try:
+                frame = make_frame(frame_type, channel_id, payload)
+                self.writer.write(frame)
+                await self.writer.drain()
+            except Exception:
+                self.connected = False
 
     async def open_channel(self, host: str, port: int) -> Tuple[int, bool]:
         """Open a tunnel channel."""
+        if not self.connected:
+            return 0, False
+
         async with self.channel_lock:
             channel_id = self.next_channel_id
             self.next_channel_id += 1
@@ -298,8 +306,11 @@ class TunnelClient:
         self.connect_results[channel_id] = False
 
         # Send CONNECT
-        payload = make_connect_payload(host, port)
-        await self.send_frame(FRAME_CONNECT, channel_id, payload)
+        try:
+            payload = make_connect_payload(host, port)
+            await self.send_frame(FRAME_CONNECT, channel_id, payload)
+        except Exception:
+            return channel_id, False
 
         # Wait for response
         try:
@@ -336,15 +347,21 @@ class TunnelClient:
         self.channels.pop(channel.channel_id, None)
 
     async def disconnect(self):
-        """Disconnect."""
+        """Disconnect and cleanup."""
         self.connected = False
         for channel in list(self.channels.values()):
             await self._close_channel(channel)
         if self.writer:
             try:
                 self.writer.close()
+                await asyncio.wait_for(self.writer.wait_closed(), timeout=2.0)
             except:
                 pass
+        self.reader = None
+        self.writer = None
+        self.channels.clear()
+        self.connect_events.clear()
+        self.connect_results.clear()
 
 
 # ============================================================================
@@ -361,6 +378,11 @@ class SOCKS5Server:
         """Handle SOCKS5 client."""
         channel = None
         try:
+            # Check tunnel is connected
+            if not self.tunnel.connected:
+                writer.close()
+                return
+
             # SOCKS5 handshake
             data = await reader.read(2)
             if len(data) < 2 or data[0] != SOCKS5.VERSION:
@@ -467,25 +489,75 @@ class SOCKS5Server:
 # ============================================================================
 
 async def run_client(config: ClientConfig, ca_cert: str):
-    tunnel = TunnelClient(config, ca_cert)
+    """Run client with auto-reconnect."""
+    reconnect_delay = 2  # seconds between reconnect attempts
+    max_reconnect_delay = 30  # max delay
+    current_delay = reconnect_delay
 
-    if not await tunnel.connect():
-        return 1
+    while True:
+        tunnel = TunnelClient(config, ca_cert)
 
-    # Start receiver in background
-    await tunnel.start_receiver()
+        # Try to connect
+        if not await tunnel.connect():
+            logger.warning(f"Connection failed, retrying in {current_delay}s...")
+            await asyncio.sleep(current_delay)
+            current_delay = min(current_delay * 2, max_reconnect_delay)
+            continue
 
-    # Start SOCKS server
-    socks = SOCKS5Server(tunnel, config.socks_host, config.socks_port)
+        # Connected - reset delay
+        current_delay = reconnect_delay
 
-    try:
-        await socks.start()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        await tunnel.disconnect()
+        # Start receiver in background
+        receiver_task = asyncio.create_task(tunnel._receiver_loop())
 
-    return 0
+        # Start SOCKS server
+        socks = SOCKS5Server(tunnel, config.socks_host, config.socks_port)
+
+        try:
+            # Create SOCKS server but don't block on it
+            socks_server = await asyncio.start_server(
+                socks.handle_client,
+                socks.host,
+                socks.port,
+                reuse_address=True  # Allow quick rebind after restart
+            )
+            addr = socks_server.sockets[0].getsockname()
+            logger.info(f"SOCKS5 proxy on {addr[0]}:{addr[1]}")
+
+            # Wait for either: receiver dies (connection lost) or KeyboardInterrupt
+            async with socks_server:
+                try:
+                    # Wait for receiver to finish (means connection lost)
+                    await receiver_task
+                except asyncio.CancelledError:
+                    pass
+
+            # Connection lost - reconnect immediately
+            if tunnel.connected:
+                tunnel.connected = False
+
+            logger.warning("Connection lost, reconnecting...")
+            current_delay = reconnect_delay  # Reset delay for next failure
+
+        except KeyboardInterrupt:
+            logger.info("Shutting down...")
+            await tunnel.disconnect()
+            return 0
+        except OSError as e:
+            if "Address already in use" in str(e):
+                logger.error(f"Port {socks.port} already in use, waiting...")
+                await asyncio.sleep(2)
+            else:
+                logger.error(f"SOCKS server error: {e}")
+        finally:
+            await tunnel.disconnect()
+            receiver_task.cancel()
+            try:
+                await receiver_task
+            except asyncio.CancelledError:
+                pass
+
+        # No delay after connection loss - only delay on connection failure (handled at top of loop)
 
 
 def main():

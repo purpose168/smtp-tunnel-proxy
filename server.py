@@ -257,12 +257,19 @@ class TunnelSession:
         while True:
             # Read data
             try:
-                chunk = await asyncio.wait_for(self.reader.read(65536), timeout=300.0)
+                chunk = await asyncio.wait_for(self.reader.read(65536), timeout=60.0)
                 if not chunk:
+                    self._log(logging.DEBUG, "Connection closed by client")
                     break
                 buffer += chunk
             except asyncio.TimeoutError:
+                # Check if connection is still alive
+                if self.writer.is_closing():
+                    break
                 continue
+            except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                self._log(logging.DEBUG, f"Connection error: {e}")
+                break
 
             # Process complete frames
             while len(buffer) >= FRAME_HEADER_SIZE:
@@ -371,10 +378,15 @@ class TunnelSession:
 
     async def _send_frame(self, frame_type: int, channel_id: int, payload: bytes = b''):
         """Send binary frame to client."""
-        async with self.write_lock:
-            frame = make_frame(frame_type, channel_id, payload)
-            self.writer.write(frame)
-            await self.writer.drain()
+        if self.writer.is_closing():
+            return
+        try:
+            async with self.write_lock:
+                frame = make_frame(frame_type, channel_id, payload)
+                self.writer.write(frame)
+                await self.writer.drain()
+        except (ConnectionResetError, BrokenPipeError, OSError):
+            pass
 
     async def _close_channel(self, channel: Channel):
         """Close a channel."""
