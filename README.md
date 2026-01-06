@@ -35,6 +35,7 @@
 | 🛡️ **IP Whitelist** | Per-user access control by IP address/CIDR |
 | 📦 **Easy Install** | One-liner server installation with systemd service |
 | 🎁 **Client Packages** | Auto-generated ZIP files for each user |
+| 🔄 **Auto-Reconnect** | Client automatically reconnects on connection loss |
 
 > 📚 For in-depth technical details, protocol specifications, and security analysis, see [TECHNICAL.md](TECHNICAL.md).
 
@@ -83,6 +84,12 @@ The installer will:
 smtp-tunnel-adduser bob      # Add user + generate client ZIP
 smtp-tunnel-listusers        # List all users
 smtp-tunnel-deluser bob      # Remove a user
+```
+
+### 🔄 Update Server
+
+```bash
+smtp-tunnel-update           # Updates code, preserves config/certs/users
 ```
 
 ---
@@ -271,6 +278,9 @@ smtp-tunnel-deluser <username> [-u USERS_FILE] [-f]
 
 smtp-tunnel-listusers [-u USERS_FILE] [-v]
     List all users (use -v for detailed info)
+
+smtp-tunnel-update
+    Update server to latest version (preserves config/certs/users)
 ```
 
 ---
@@ -291,6 +301,7 @@ smtp_proxy/
 ├── 🔧 smtp-tunnel-adduser     # Add user script
 ├── 🔧 smtp-tunnel-deluser     # Remove user script
 ├── 🔧 smtp-tunnel-listusers   # List users script
+├── 🔧 smtp-tunnel-update      # Update server script
 ├── 📄 README.md               # This file
 └── 📄 TECHNICAL.md            # Technical documentation
 ```
@@ -305,10 +316,11 @@ smtp_proxy/
   ├── server.crt
   ├── server.key
   └── ca.crt
-/usr/local/bin/                # User management commands
+/usr/local/bin/                # Management commands
   ├── smtp-tunnel-adduser
   ├── smtp-tunnel-deluser
-  └── smtp-tunnel-listusers
+  ├── smtp-tunnel-listusers
+  └── smtp-tunnel-update
 ```
 
 ---
