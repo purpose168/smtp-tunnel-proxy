@@ -309,6 +309,8 @@ EOF
     cd "$INSTALL_DIR"
     if python3 generate_certs.py --hostname "$DOMAIN_NAME" --output-dir "$CONFIG_DIR"; then
         print_info "Certificates generated successfully"
+        # Create symlink so adduser script can find ca.crt
+        ln -sf "$CONFIG_DIR/ca.crt" "$INSTALL_DIR/ca.crt"
     else
         print_error "Failed to generate certificates. You can try manually:"
         echo "    cd $INSTALL_DIR"
@@ -332,8 +334,7 @@ EOF
             cd "$INSTALL_DIR"
             if python3 smtp-tunnel-adduser "$FIRST_USER" \
                 -u "$CONFIG_DIR/users.yaml" \
-                -c "$CONFIG_DIR/config.yaml" \
-                --ca-cert "$CONFIG_DIR/ca.crt"; then
+                -c "$CONFIG_DIR/config.yaml"; then
                 echo ""
                 print_info "User '$FIRST_USER' created successfully!"
                 print_info "Client package: $INSTALL_DIR/${FIRST_USER}.zip"
