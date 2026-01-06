@@ -128,7 +128,7 @@ curl -x socks5h://127.0.0.1:1080 https://ifconfig.me
 
         # Create ZIP file
         zip_filename = f"{username}.zip"
-        zip_path = os.path.join(output_dir, zip_filename)
+        zip_path = os.path.abspath(os.path.join(output_dir, zip_filename))
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(pkg_dir):
