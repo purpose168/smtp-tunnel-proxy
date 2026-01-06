@@ -204,7 +204,7 @@ echo.
 pause
 '''
         bat_path = os.path.join(pkg_dir, 'start.bat')
-        with open(bat_path, 'w', newline='\\r\\n') as f:
+        with open(bat_path, 'w', newline='\r\n') as f:
             f.write(bat_content)
 
         # Create Linux/Mac launcher script (start.sh)
