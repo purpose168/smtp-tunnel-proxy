@@ -303,11 +303,14 @@ class TunnelCrypto:
         Returns:
             Tuple of (is_valid, username)
         """
+        import logging
+        logger = logging.getLogger('smtp-tunnel')
         try:
             decoded = base64.b64decode(token).decode()
             parts = decoded.split(':')
 
             if len(parts) != 3:
+                logger.warning(f"Auth: Invalid token format, got {len(parts)} parts")
                 return False, None
 
             username, timestamp_str, mac_b64 = parts
@@ -316,10 +319,12 @@ class TunnelCrypto:
             # Check timestamp freshness
             now = int(time.time())
             if abs(now - timestamp) > max_age:
+                logger.warning(f"Auth: Timestamp expired. Token: {timestamp}, Now: {now}, Diff: {abs(now-timestamp)}s")
                 return False, None
 
             # Look up user
             if username not in users:
+                logger.warning(f"Auth: User '{username}' not found in users dict")
                 return False, None
 
             user_data = users[username]
@@ -330,13 +335,18 @@ class TunnelCrypto:
             else:
                 secret = str(user_data)
 
+            logger.warning(f"Auth: User '{username}' found, secret starts with '{secret[:8]}...'")
+
             # Verify HMAC with user's secret
             crypto = TunnelCrypto(secret)
             expected_token = crypto.generate_auth_token(timestamp, username)
+            logger.warning(f"Auth: Comparing tokens - Match: {token == expected_token}")
             if hmac.compare_digest(token, expected_token):
                 return True, username
+            logger.warning(f"Auth: HMAC mismatch for user '{username}'")
             return False, None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Auth: Exception - {e}")
             return False, None
 
 
