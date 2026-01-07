@@ -96,27 +96,42 @@ smtp-tunnel-update           # Updates code, preserves config/certs/users
 
 ## 💻 Client Setup
 
-### Option A: Use Generated Package (Recommended)
+### Option A: Easy Way (Recommended)
 
 1. Get your `username.zip` file from the server admin
 2. Extract the ZIP file
-3. Install dependencies and run:
+3. Run the launcher:
+
+| Platform | How to Run |
+|----------|------------|
+| 🪟 **Windows** | Double-click `start.bat` |
+| 🐧 **Linux** | Run `./start.sh` |
+| 🍎 **macOS** | Run `./start.sh` |
+
+The launcher will automatically install dependencies and start the client.
+
+✅ You should see:
+```
+SMTP Tunnel Proxy Client
+User: alice
+
+[INFO] Starting SMTP Tunnel...
+[INFO] SOCKS5 proxy will be available at 127.0.0.1:1080
+
+Connecting to myserver.duckdns.org:587
+Connected - binary mode active
+SOCKS5 proxy on 127.0.0.1:1080
+```
+
+### Option B: Manual Way
 
 ```bash
 cd alice
 pip install -r requirements.txt
-python3 client.py
+python client.py
 ```
 
-✅ You should see:
-```
-Connecting to myserver.duckdns.org:587
-TLS established
-[alice] Connected - binary mode active
-SOCKS5 proxy on 127.0.0.1:1080
-```
-
-### Option B: Manual Configuration
+### Option C: Custom Configuration
 
 ```bash
 # Download files
@@ -134,7 +149,7 @@ client:
 EOF
 
 # Run client
-python3 client.py -c config.yaml
+python client.py -c config.yaml
 ```
 
 ---
