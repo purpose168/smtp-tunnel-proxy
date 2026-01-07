@@ -258,6 +258,24 @@ users:
 
 ---
 
+## 📋 Service Management
+
+```bash
+# Check status
+sudo systemctl status smtp-tunnel
+
+# Restart after config changes
+sudo systemctl restart smtp-tunnel
+
+# View logs
+sudo journalctl -u smtp-tunnel -n 100
+
+# Uninstall
+sudo /opt/smtp-tunnel/uninstall.sh
+```
+
+---
+
 ## 🔧 Command Line Options
 
 ### 🖥️ Server
@@ -371,22 +389,6 @@ python client.py -d
 
 # View systemd logs
 journalctl -u smtp-tunnel -f
-```
-
-### 📋 Service Management
-
-```bash
-# Check status
-sudo systemctl status smtp-tunnel
-
-# Restart after config changes
-sudo systemctl restart smtp-tunnel
-
-# View logs
-sudo journalctl -u smtp-tunnel -n 100
-
-# Uninstall
-sudo /opt/smtp-tunnel/uninstall.sh
 ```
 
 ---
