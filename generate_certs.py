@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Generate self-signed TLS certificates for SMTP tunnel.
-Creates server certificate that mimics a real mail server.
+为 SMTP 隧道生成自签名 TLS 证书。
+创建模拟真实邮件服务器的服务器证书。
 
-Version: 1.3.0
+版本: 1.3.0
 """
 
 import os
@@ -20,7 +20,7 @@ from cryptography.hazmat.backends import default_backend
 
 
 def generate_private_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
-    """Generate RSA private key."""
+    """生成 RSA 私钥。"""
     return rsa.generate_private_key(
         public_exponent=65537,
         key_size=key_size,
@@ -33,7 +33,7 @@ def generate_ca_certificate(
     common_name: str = "SMTP Tunnel CA",
     days_valid: int = 3650
 ) -> x509.Certificate:
-    """Generate self-signed CA certificate."""
+    """生成自签名 CA 证书。"""
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
@@ -82,8 +82,8 @@ def generate_server_certificate(
     days_valid: int = 1095
 ) -> x509.Certificate:
     """
-    Generate server certificate signed by CA.
-    Mimics a real mail server certificate.
+    生成由 CA 签名的服务器证书。
+    模拟真实的邮件服务器证书。
     """
     subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
@@ -93,7 +93,7 @@ def generate_server_certificate(
         x509.NameAttribute(NameOID.COMMON_NAME, hostname),
     ])
 
-    # Subject Alternative Names (important for TLS validation)
+    # 主题备用名称（对 TLS 验证很重要）
     san = x509.SubjectAlternativeName([
         x509.DNSName(hostname),
         x509.DNSName(f"smtp.{hostname.split('.', 1)[-1] if '.' in hostname else hostname}"),
@@ -141,7 +141,7 @@ def generate_server_certificate(
 
 
 def save_private_key(key: rsa.RSAPrivateKey, path: str, password: bytes = None):
-    """Save private key to PEM file."""
+    """保存私钥到 PEM 文件。"""
     encryption = (
         serialization.BestAvailableEncryption(password)
         if password
@@ -157,15 +157,15 @@ def save_private_key(key: rsa.RSAPrivateKey, path: str, password: bytes = None):
     with open(path, 'wb') as f:
         f.write(pem)
 
-    # Secure file permissions (owner read-only)
+    # 安全的文件权限（仅所有者可读）
     try:
         os.chmod(path, 0o600)
     except (OSError, AttributeError):
-        pass  # Windows doesn't support chmod the same way
+        pass  # Windows 不以相同方式支持 chmod
 
 
 def save_certificate(cert: x509.Certificate, path: str):
-    """Save certificate to PEM file."""
+    """保存证书到 PEM 文件。"""
     pem = cert.public_bytes(serialization.Encoding.PEM)
 
     with open(path, 'wb') as f:
@@ -174,91 +174,91 @@ def save_certificate(cert: x509.Certificate, path: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Generate TLS certificates for SMTP tunnel'
+        description='为 SMTP 隧道生成 TLS 证书'
     )
     parser.add_argument(
         '--hostname',
         default='mail.example.com',
-        help='Server hostname for certificate (default: mail.example.com)'
+        help='证书的服务器主机名（默认: mail.example.com）'
     )
     parser.add_argument(
         '--output-dir',
         default='.',
-        help='Output directory for certificates (default: current directory)'
+        help='证书的输出目录（默认: 当前目录）'
     )
     parser.add_argument(
         '--days',
         type=int,
         default=1095,
-        help='Certificate validity in days (default: 1095 = 3 years)'
+        help='证书有效期（天）（默认: 1095 = 3 年）'
     )
     parser.add_argument(
         '--key-size',
         type=int,
         default=2048,
-        help='RSA key size in bits (default: 2048)'
+        help='RSA 密钥大小（位）（默认: 2048）'
     )
 
     args = parser.parse_args()
 
-    # Create output directory if needed
+    # 如需要，创建输出目录
     os.makedirs(args.output_dir, exist_ok=True)
 
-    print(f"Generating certificates for hostname: {args.hostname}")
-    print(f"Key size: {args.key_size} bits")
-    print(f"Validity: {args.days} days")
+    print(f"为主机名生成证书: {args.hostname}")
+    print(f"密钥大小: {args.key_size} 位")
+    print(f"有效期: {args.days} 天")
     print()
 
-    # Generate CA
-    print("Generating CA private key...")
+    # 生成 CA
+    print("正在生成 CA 私钥...")
     ca_key = generate_private_key(args.key_size)
 
-    print("Generating CA certificate...")
+    print("正在生成 CA 证书...")
     ca_cert = generate_ca_certificate(ca_key, days_valid=args.days * 10)
 
-    # Generate server certificate
-    print("Generating server private key...")
+    # 生成服务器证书
+    print("正在生成服务器私钥...")
     server_key = generate_private_key(args.key_size)
 
-    print("Generating server certificate...")
+    print("正在生成服务器证书...")
     server_cert = generate_server_certificate(
         ca_key, ca_cert, server_key,
         hostname=args.hostname,
         days_valid=args.days
     )
 
-    # Save files
+    # 保存文件
     ca_key_path = os.path.join(args.output_dir, 'ca.key')
     ca_cert_path = os.path.join(args.output_dir, 'ca.crt')
     server_key_path = os.path.join(args.output_dir, 'server.key')
     server_cert_path = os.path.join(args.output_dir, 'server.crt')
 
     print()
-    print("Saving files...")
+    print("正在保存文件...")
 
     save_private_key(ca_key, ca_key_path)
-    print(f"  CA private key:      {ca_key_path}")
+    print(f"  CA 私钥:            {ca_key_path}")
 
     save_certificate(ca_cert, ca_cert_path)
-    print(f"  CA certificate:      {ca_cert_path}")
+    print(f"  CA 证书:            {ca_cert_path}")
 
     save_private_key(server_key, server_key_path)
-    print(f"  Server private key:  {server_key_path}")
+    print(f"  服务器私钥:        {server_key_path}")
 
     save_certificate(server_cert, server_cert_path)
-    print(f"  Server certificate:  {server_cert_path}")
+    print(f"  服务器证书:        {server_cert_path}")
 
     print()
-    print("Certificate generation complete!")
+    print("证书生成完成！")
     print()
-    print("For the server, you need:")
+    print("对于服务器，您需要:")
     print(f"  - {server_cert_path}")
     print(f"  - {server_key_path}")
     print()
-    print("For the client (to verify server), copy:")
+    print("对于客户端（用于验证服务器），复制:")
     print(f"  - {ca_cert_path}")
     print()
-    print("Or disable certificate verification in the client config (less secure).")
+    print("或在客户端配置中禁用证书验证（不太安全）。")
 
 
 if __name__ == '__main__':

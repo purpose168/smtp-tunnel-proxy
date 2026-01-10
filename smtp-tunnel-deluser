@@ -1,71 +1,71 @@
 #!/usr/bin/env python3
 """
-SMTP Tunnel - Delete User Script
+SMTP 隧道 - 删除用户脚本
 
-Removes a user from the users configuration.
+从用户配置中移除用户。
 
-Version: 1.3.0
+版本: 1.3.0
 """
 
-import argparse
-import os
-import sys
+import argparse  # 命令行参数解析库
+import os        # 操作系统接口库
+import sys       # 系统相关功能库
 
-# Add current directory to path for imports
+# 将当前目录添加到导入路径，以便导入本地模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from common import load_users, save_users
+from common import load_users, save_users  # 导入用户加载和保存函数
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Remove a user from SMTP Tunnel',
+        description='从 SMTP 隧道中移除用户',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  %(prog)s alice              # Remove user 'alice'
-  %(prog)s bob --force        # Remove without confirmation
+示例:
+  %(prog)s alice              # 移除用户 'alice'
+  %(prog)s bob --force        # 无需确认直接移除
 """
     )
-    parser.add_argument('username', help='Username to remove')
-    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='Users file (default: /etc/smtp-tunnel/users.yaml)')
-    parser.add_argument('--force', '-f', action='store_true', help='Do not ask for confirmation')
+    parser.add_argument('username', help='要移除的用户名')
+    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='用户文件（默认: /etc/smtp-tunnel/users.yaml）')
+    parser.add_argument('--force', '-f', action='store_true', help='不要求确认')
 
     args = parser.parse_args()
 
-    # Get base directory
+    # 获取基础目录
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Load existing users
+    # 加载现有用户
     users_file = args.users_file
     if not os.path.isabs(users_file):
-        users_file = os.path.join(base_dir, users_file)
+        users_file = os.path.join(base_dir, users_file)  # 转换为绝对路径
 
-    users = load_users(users_file)
+    users = load_users(users_file)  # 加载用户数据
 
-    # Check if user exists
+    # 检查用户是否存在
     if args.username not in users:
-        print(f"Error: User '{args.username}' not found")
+        print(f"错误: 用户 '{args.username}' 未找到")
         return 1
 
-    # Confirm deletion
+    # 确认删除
     if not args.force:
-        response = input(f"Delete user '{args.username}'? [y/N]: ").strip().lower()
+        response = input(f"删除用户 '{args.username}'？[y/N]: ").strip().lower()
         if response != 'y':
-            print("Cancelled")
+            print("已取消")
             return 0
 
-    # Remove user
+    # 移除用户
     del users[args.username]
 
-    # Save users file
+    # 保存用户文件
     save_users(users_file, users)
-    print(f"User '{args.username}' removed")
+    print(f"用户 '{args.username}' 已移除")
 
-    # Remind about ZIP files
+    # 提醒 ZIP 文件
     zip_file = f"{args.username}.zip"
     if os.path.exists(zip_file):
-        print(f"Note: Client package '{zip_file}' still exists - delete manually if needed")
+        print(f"注意: 客户端包 '{zip_file}' 仍然存在 - 如需要请手动删除")
 
     return 0
 

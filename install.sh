@@ -1,33 +1,35 @@
 #!/bin/bash
 #
-# SMTP Tunnel Proxy - Server Installation Script
+# SMTP 隧道代理 - 服务器安装脚本
 #
-# One-liner installation:
+# 一行命令安装:
 #   curl -sSL https://raw.githubusercontent.com/x011/smtp-tunnel-proxy/main/install.sh | sudo bash
 #
-# Version: 1.3.0
+# 版本: 1.3.0
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+# 输出颜色定义
+RED='\033[0;31m'      # 红色 - 错误
+GREEN='\033[0;32m'    # 绿色 - 信息
+YELLOW='\033[1;33m'   # 黄色 - 警告
+BLUE='\033[0;34m'     # 蓝色 - 步骤
+CYAN='\033[0;36m'     # 青色 - 提问
+NC='\033[0m'          # 无颜色
 
-# GitHub raw URL base
+# GitHub 原始文件 URL 基础地址
 GITHUB_RAW="https://raw.githubusercontent.com/x011/smtp-tunnel-proxy/main"
 
-# Installation directories
-INSTALL_DIR="/opt/smtp-tunnel"
-CONFIG_DIR="/etc/smtp-tunnel"
-BIN_DIR="/usr/local/bin"
+# 安装目录
+INSTALL_DIR="/opt/smtp-tunnel"      # 程序安装目录
+CONFIG_DIR="/etc/smtp-tunnel"       # 配置文件目录
+BIN_DIR="/usr/local/bin"            # 可执行文件目录
 
-# Files to download
+# 需要下载的 Python 文件
 PYTHON_FILES="server.py client.py common.py generate_certs.py"
+
+# 需要下载的管理脚本
 SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"
 
-# Print functions
+# 打印信息函数
 print_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -48,32 +50,32 @@ print_ask() {
     echo -e "${CYAN}[?]${NC} $1"
 }
 
-# Check if running as root
+# 检查是否以 root 权限运行
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        print_error "Please run as root (use sudo)"
+        print_error "请以 root 权限运行（使用 sudo）"
         echo ""
-        echo "Usage: curl -sSL $GITHUB_RAW/install.sh | sudo bash"
+        echo "使用方法: curl -sSL $GITHUB_RAW/install.sh | sudo bash"
         exit 1
     fi
 }
 
-# Detect OS
+# 检测操作系统
 detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS=$ID
         OS_VERSION=$VERSION_ID
     else
-        print_error "Cannot detect OS"
+        print_error "无法检测操作系统"
         exit 1
     fi
-    print_info "Detected OS: $OS $OS_VERSION"
+    print_info "检测到操作系统: $OS $OS_VERSION"
 }
 
-# Install Python and dependencies
+# 安装 Python 和依赖
 install_dependencies() {
-    print_step "Installing system dependencies..."
+    print_step "安装系统依赖..."
 
     case $OS in
         ubuntu|debian)
@@ -94,23 +96,23 @@ install_dependencies() {
             pacman -Sy --noconfirm python python-pip curl
             ;;
         *)
-            print_warn "Unknown OS '$OS', assuming Python 3 and curl are installed"
+            print_warn "未知操作系统 '$OS'，假设已安装 Python 3 和 curl"
             ;;
     esac
 
-    # Check Python version
+    # 检查 Python 版本
     if command -v python3 &> /dev/null; then
         PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-        print_info "Python version: $PYTHON_VERSION"
+        print_info "Python 版本: $PYTHON_VERSION"
     else
-        print_error "Python 3 not found. Please install Python 3.8+"
+        print_error "未找到 Python 3。请安装 Python 3.8+"
         exit 1
     fi
 }
 
-# Create directories
+# 创建目录
 create_directories() {
-    print_step "Creating directories..."
+    print_step "创建目录..."
 
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$CONFIG_DIR"
@@ -118,79 +120,79 @@ create_directories() {
     chmod 755 "$INSTALL_DIR"
     chmod 700 "$CONFIG_DIR"
 
-    print_info "Created: $INSTALL_DIR"
-    print_info "Created: $CONFIG_DIR"
+    print_info "已创建: $INSTALL_DIR"
+    print_info "已创建: $CONFIG_DIR"
 }
 
-# Download file from GitHub
+# 从 GitHub 下载文件
 download_file() {
     local filename=$1
     local destination=$2
     local url="$GITHUB_RAW/$filename"
 
     if curl -sSL -f "$url" -o "$destination" 2>/dev/null; then
-        print_info "  Downloaded: $filename"
+        print_info "  已下载: $filename"
         return 0
     else
-        print_error "  Failed to download: $filename"
+        print_error "  下载失败: $filename"
         return 1
     fi
 }
 
-# Download and install files
+# 下载并安装文件
 install_files() {
-    print_step "Downloading files from GitHub..."
+    print_step "从 GitHub 下载文件..."
 
-    # Download Python files to install directory
+    # 下载 Python 文件到安装目录
     for file in $PYTHON_FILES; do
         if ! download_file "$file" "$INSTALL_DIR/$file"; then
-            print_error "Failed to download required file: $file"
+            print_error "下载必需文件失败: $file"
             exit 1
         fi
     done
 
-    # Download and install management scripts
+    # 下载并安装管理脚本
     for script in $SCRIPTS; do
         if ! download_file "$script" "$INSTALL_DIR/$script"; then
-            print_error "Failed to download required script: $script"
+            print_error "下载必需脚本失败: $script"
             exit 1
         fi
         chmod +x "$INSTALL_DIR/$script"
-        # Create symlink in bin directory
+        # 在 bin 目录创建符号链接
         ln -sf "$INSTALL_DIR/$script" "$BIN_DIR/$script"
-        print_info "  Linked: $script -> $BIN_DIR/$script"
+        print_info "  已链接: $script -> $BIN_DIR/$script"
     done
 
-    # Download config template
+    # 下载配置模板
     download_file "config.yaml" "$INSTALL_DIR/config.yaml.template" || true
 
-    # Download users template
+    # 下载用户模板
     download_file "users.yaml" "$INSTALL_DIR/users.yaml.template" || true
 
-    # Download requirements.txt
+    # 下载 requirements.txt
     if ! download_file "requirements.txt" "$INSTALL_DIR/requirements.txt"; then
-        print_error "Failed to download requirements.txt"
+        print_error "下载 requirements.txt 失败"
         exit 1
     fi
 }
 
-# Install Python packages
+# 安装 Python 包
 install_python_packages() {
-    print_step "Installing Python packages..."
+    print_step "安装 Python 包..."
 
     pip3 install --root-user-action=ignore -q -r "$INSTALL_DIR/requirements.txt" 2>/dev/null || \
     pip3 install -q -r "$INSTALL_DIR/requirements.txt"
 
-    print_info "Python packages installed"
+    print_info "Python 包已安装"
 }
 
-# Create systemd service
+# 创建 systemd 服务
 install_systemd_service() {
-    print_step "Installing systemd service..."
+    print_step "安装 systemd 服务..."
 
     cat > /etc/systemd/system/smtp-tunnel.service << EOF
 [Unit]
-Description=SMTP Tunnel Proxy Server
+Description=SMTP 隧道代理服务器
 After=network.target
 
 [Service]
@@ -208,20 +210,20 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    print_info "Service installed: smtp-tunnel.service"
+    print_info "服务已安装: smtp-tunnel.service"
 }
 
-# Create uninstall script
+# 创建卸载脚本
 create_uninstall_script() {
     cat > "$INSTALL_DIR/uninstall.sh" << 'EOF'
 #!/bin/bash
-# SMTP Tunnel Proxy - Uninstall Script
+# SMTP 隧道代理 - 卸载脚本
 
-echo "Stopping service..."
+echo "正在停止服务..."
 systemctl stop smtp-tunnel 2>/dev/null || true
 systemctl disable smtp-tunnel 2>/dev/null || true
 
-echo "Removing files..."
+echo "正在删除文件..."
 rm -f /etc/systemd/system/smtp-tunnel.service
 rm -f /usr/local/bin/smtp-tunnel-adduser
 rm -f /usr/local/bin/smtp-tunnel-deluser
@@ -229,47 +231,47 @@ rm -f /usr/local/bin/smtp-tunnel-listusers
 rm -rf /opt/smtp-tunnel
 
 echo ""
-echo "Note: Configuration in /etc/smtp-tunnel was NOT removed"
-echo "Remove manually if needed: rm -rf /etc/smtp-tunnel"
+echo "注意: /etc/smtp-tunnel 中的配置未被删除"
+echo "如需删除，请手动执行: rm -rf /etc/smtp-tunnel"
 
 systemctl daemon-reload
 
 echo ""
-echo "SMTP Tunnel Proxy uninstalled successfully"
+echo "SMTP 隧道代理已成功卸载"
 EOF
 
     chmod +x "$INSTALL_DIR/uninstall.sh"
-    print_info "Created: $INSTALL_DIR/uninstall.sh"
+    print_info "已创建: $INSTALL_DIR/uninstall.sh"
 }
 
-# Interactive setup
+# 交互式设置
 interactive_setup() {
     echo ""
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  Interactive Setup${NC}"
+    echo -e "${GREEN}  交互式设置${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
 
-    # Ask for hostname
-    print_ask "Enter your domain name (e.g., myserver.duckdns.org):"
-    echo -e "    ${YELLOW}Tip: Get a free domain at duckdns.org, noip.com, or freedns.afraid.org${NC}"
+    # 询问域名
+    print_ask "输入您的域名（例如: myserver.duckdns.org）:"
+    echo -e "    ${YELLOW}提示: 可以在 duckdns.org、noip.com 或 freedns.afraid.org 获取免费域名${NC}"
     echo ""
-    read -p "    Domain: " DOMAIN_NAME < /dev/tty
+    read -p "    域名: " DOMAIN_NAME < /dev/tty
 
     if [ -z "$DOMAIN_NAME" ]; then
-        print_error "Domain name is required!"
+        print_error "域名是必需的！"
         exit 1
     fi
 
-    print_info "Using domain: $DOMAIN_NAME"
+    print_info "使用域名: $DOMAIN_NAME"
     echo ""
 
-    # Create config.yaml with the domain
-    print_step "Creating configuration..."
+    # 使用域名创建 config.yaml
+    print_step "创建配置..."
 
     cat > "$CONFIG_DIR/config.yaml" << EOF
-# SMTP Tunnel Proxy Configuration
-# Generated by install.sh
+# SMTP 隧道代理配置
+# 由 install.sh 生成
 
 server:
   host: "0.0.0.0"
@@ -289,92 +291,92 @@ client:
 EOF
 
     chmod 600 "$CONFIG_DIR/config.yaml"
-    print_info "Created: $CONFIG_DIR/config.yaml"
+    print_info "已创建: $CONFIG_DIR/config.yaml"
 
-    # Create empty users.yaml
+    # 创建空的 users.yaml
     cat > "$CONFIG_DIR/users.yaml" << 'EOF'
-# SMTP Tunnel Users
-# Managed by smtp-tunnel-adduser
+# SMTP 隧道用户
+# 由 smtp-tunnel-adduser 管理
 
 users: {}
 EOF
 
     chmod 600 "$CONFIG_DIR/users.yaml"
-    print_info "Created: $CONFIG_DIR/users.yaml"
+    print_info "已创建: $CONFIG_DIR/users.yaml"
 
-    # Generate certificates
+    # 生成证书
     echo ""
-    print_step "Generating TLS certificates for $DOMAIN_NAME..."
+    print_step "为 $DOMAIN_NAME 生成 TLS 证书..."
 
     cd "$INSTALL_DIR"
     if python3 generate_certs.py --hostname "$DOMAIN_NAME" --output-dir "$CONFIG_DIR"; then
-        print_info "Certificates generated successfully"
-        # Create symlink so adduser script can find ca.crt
+        print_info "证书生成成功"
+        # 创建符号链接以便 adduser 脚本可以找到 ca.crt
         ln -sf "$CONFIG_DIR/ca.crt" "$INSTALL_DIR/ca.crt"
     else
-        print_error "Failed to generate certificates. You can try manually:"
+        print_error "证书生成失败。您可以手动尝试:"
         echo "    cd $INSTALL_DIR"
         echo "    python3 generate_certs.py --hostname $DOMAIN_NAME --output-dir $CONFIG_DIR"
     fi
 
-    # Ask to create first user
+    # 询问是否创建第一个用户
     echo ""
-    print_ask "Would you like to create your first user now? [Y/n]: "
+    print_ask "您现在想创建第一个用户吗？[Y/n]: "
     read -p "    " CREATE_USER < /dev/tty
 
     if [ -z "$CREATE_USER" ] || [ "$CREATE_USER" = "y" ] || [ "$CREATE_USER" = "Y" ]; then
         echo ""
-        print_ask "Enter username for the first user:"
-        read -p "    Username: " FIRST_USER < /dev/tty
+        print_ask "输入第一个用户的用户名:"
+        read -p "    用户名: " FIRST_USER < /dev/tty
 
         if [ -n "$FIRST_USER" ]; then
             echo ""
-            print_step "Creating user '$FIRST_USER'..."
+            print_step "正在创建用户 '$FIRST_USER'..."
 
             cd "$INSTALL_DIR"
             if python3 smtp-tunnel-adduser "$FIRST_USER"; then
                 echo ""
-                print_info "User '$FIRST_USER' created successfully!"
-                print_info "Client package: $INSTALL_DIR/${FIRST_USER}.zip"
+                print_info "用户 '$FIRST_USER' 创建成功！"
+                print_info "客户端包: $INSTALL_DIR/${FIRST_USER}.zip"
                 echo ""
-                echo -e "    ${YELLOW}Send this ZIP file to the user - it contains everything needed to connect!${NC}"
+                echo -e "    ${YELLOW}将此 ZIP 文件发送给用户 - 它包含连接所需的一切！${NC}"
             else
-                print_warn "Failed to create user. You can create users later with:"
+                print_warn "创建用户失败。您可以稍后使用以下命令创建用户:"
                 echo "    smtp-tunnel-adduser <username>"
             fi
         else
-            print_warn "No username provided. You can create users later with:"
+            print_warn "未提供用户名。您可以稍后使用以下命令创建用户:"
             echo "    smtp-tunnel-adduser <username>"
         fi
     else
         echo ""
-        print_info "Skipping user creation."
-        echo "    You can create users later with: smtp-tunnel-adduser <username>"
+        print_info "跳过用户创建。"
+        echo "    您可以稍后使用以下命令创建用户: smtp-tunnel-adduser <username>"
     fi
 
-    # Open firewall
+    # 打开防火墙
     echo ""
-    print_step "Configuring firewall..."
+    print_step "配置防火墙..."
 
     if command -v ufw &> /dev/null; then
         if ufw allow 587/tcp >/dev/null 2>&1; then
-            print_info "Opened port 587/tcp (ufw)"
+            print_info "已打开端口 587/tcp (ufw)"
         else
-            print_warn "Could not configure ufw. Make sure port 587/tcp is open!"
+            print_warn "无法配置 ufw。请确保端口 587/tcp 已打开！"
         fi
     elif command -v firewall-cmd &> /dev/null; then
         if firewall-cmd --permanent --add-port=587/tcp >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1; then
-            print_info "Opened port 587/tcp (firewalld)"
+            print_info "已打开端口 587/tcp (firewalld)"
         else
-            print_warn "Could not configure firewalld. Make sure port 587/tcp is open!"
+            print_warn "无法配置 firewalld。请确保端口 587/tcp 已打开！"
         fi
     else
-        print_warn "No firewall detected. Make sure port 587/tcp is open!"
+        print_warn "未检测到防火墙。请确保端口 587/tcp 已打开！"
     fi
 
-    # Enable and start service
+    # 启用并启动服务
     echo ""
-    print_step "Starting SMTP Tunnel service..."
+    print_step "启动 SMTP 隧道服务..."
 
     systemctl enable smtp-tunnel >/dev/null 2>&1 || true
     systemctl start smtp-tunnel 2>&1 || true
@@ -382,49 +384,49 @@ EOF
     sleep 2
 
     if systemctl is-active --quiet smtp-tunnel; then
-        print_info "Service started successfully!"
+        print_info "服务启动成功！"
     else
-        print_warn "Service may not have started. Check with:"
+        print_warn "服务可能未启动。请使用以下命令检查:"
         echo "    systemctl status smtp-tunnel"
         echo "    journalctl -u smtp-tunnel -n 50"
     fi
 }
 
-# Print final summary
+# 打印最终摘要
 print_summary() {
     echo ""
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  Installation Complete!${NC}"
+    echo -e "${GREEN}  安装完成！${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
-    echo "Your SMTP Tunnel Proxy is now running!"
+    echo "您的 SMTP 隧道代理现在正在运行！"
     echo ""
-    echo -e "${BLUE}Service Status:${NC}"
+    echo -e "${BLUE}服务状态:${NC}"
     echo "   systemctl status smtp-tunnel"
     echo ""
-    echo -e "${BLUE}View Logs:${NC}"
+    echo -e "${BLUE}查看日志:${NC}"
     echo "   journalctl -u smtp-tunnel -f"
     echo ""
-    echo -e "${BLUE}User Management:${NC}"
-    echo "   smtp-tunnel-adduser <username>    Add user + generate client ZIP"
-    echo "   smtp-tunnel-deluser <username>    Remove user"
-    echo "   smtp-tunnel-listusers             List all users"
+    echo -e "${BLUE}用户管理:${NC}"
+    echo "   smtp-tunnel-adduser <username>    添加用户并生成客户端 ZIP"
+    echo "   smtp-tunnel-deluser <username>    删除用户"
+    echo "   smtp-tunnel-listusers             列出所有用户"
     echo ""
-    echo -e "${BLUE}Configuration Files:${NC}"
+    echo -e "${BLUE}配置文件:${NC}"
     echo "   $CONFIG_DIR/config.yaml"
     echo "   $CONFIG_DIR/users.yaml"
     echo ""
-    echo -e "${BLUE}To Uninstall:${NC}"
+    echo -e "${BLUE}卸载:${NC}"
     echo "   $INSTALL_DIR/uninstall.sh"
     echo ""
 }
 
-# Main installation
+# 主安装流程
 main() {
     echo ""
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  SMTP Tunnel Proxy Installer${NC}"
-    echo -e "${GREEN}  Version 1.2.0${NC}"
+    echo -e "${GREEN}  SMTP 隧道代理安装程序${NC}"
+    echo -e "${GREEN}  版本 1.2.0${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
 
@@ -440,5 +442,5 @@ main() {
     print_summary
 }
 
-# Run main
+# 运行主函数
 main "$@"

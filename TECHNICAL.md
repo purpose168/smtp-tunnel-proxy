@@ -1,60 +1,60 @@
-# 📧 SMTP Tunnel - Technical Documentation
+# 📧 SMTP 隧道 - 技术文档
 
-This document provides in-depth technical details about the SMTP Tunnel Proxy, including protocol design, DPI evasion techniques, security analysis, and implementation details.
+本文档提供了 SMTP 隧道代理的深入技术细节，包括协议设计、DPI 规避技术、安全分析和实现细节。
 
-> 📖 For basic setup and usage, see [README.md](README.md).
-
----
-
-## 📑 Table of Contents
-
-- [📨 Why SMTP?](#-why-smtp)
-- [🎭 How It Bypasses DPI](#-how-it-bypasses-dpi)
-- [⚡ Why It's Fast](#-why-its-fast)
-- [🏗️ Architecture](#️-architecture)
-- [📐 Protocol Design](#-protocol-design)
-- [🔧 Component Details](#-component-details)
-- [🔐 Security Analysis](#-security-analysis)
-- [🌐 Domain vs IP Address](#-domain-name-vs-ip-address-security-implications)
-- [⚙️ Advanced Configuration](#️-advanced-configuration)
+> 📖 基本设置和使用说明，请参阅 [README.md](README.md)。
 
 ---
 
-## 📨 Why SMTP?
+## 📑 目录
 
-SMTP (Simple Mail Transfer Protocol) is the protocol used for sending emails. It's an excellent choice for tunneling because:
-
-### 1️⃣ Ubiquitous Traffic
-- Email is essential infrastructure - blocking it breaks legitimate services
-- SMTP traffic on port 587 (submission) is expected and normal
-- Millions of emails traverse networks every second
-
-### 2️⃣ Expected to be Encrypted
-- STARTTLS is standard for SMTP - encrypted email is normal
-- DPI systems expect to see TLS-encrypted SMTP traffic
-- No red flags for encrypted content
-
-### 3️⃣ Flexible Protocol
-- SMTP allows large data transfers (attachments)
-- Binary data is normal (MIME-encoded attachments)
-- Long-lived connections are acceptable
-
-### 4️⃣ Hard to Block
-- Blocking port 587 would break email for everyone
-- Can't easily distinguish tunnel from real email after TLS
-- Would require blocking all encrypted email
+- [📨 为什么选择 SMTP？](#-为什么选择-smtp)
+- [🎭 如何绕过 DPI](#-如何绕过-dpi)
+- [⚡ 为什么速度快](#-为什么速度快)
+- [🏗️ 架构](#️-架构)
+- [📐 协议设计](#-协议设计)
+- [🔧 组件详情](#-组件详情)
+- [🔐 安全分析](#-安全分析)
+- [🌐 域名 vs IP 地址](#-域名-vs-ip-地址安全影响)
+- [⚙️ 高级配置](#️-高级配置)
 
 ---
 
-## 🎭 How It Bypasses DPI
+## 📨 为什么选择 SMTP？
 
-Deep Packet Inspection (DPI) systems analyze network traffic to identify and block certain protocols or content. Here's how SMTP Tunnel evades detection:
+SMTP（简单邮件传输协议）是用于发送电子邮件的协议。它是隧道传输的绝佳选择，原因如下：
 
-### 🔍 Phase 1: The Deception (Plaintext)
+### 1️⃣ 普遍存在的流量
+- 电子邮件是基础设施 - 阻止它会破坏合法服务
+- 端口 587（提交端口）上的 SMTP 流量是预期且正常的
+- 每秒有数百万封电子邮件在网络中传输
+
+### 2️⃣ 预期会被加密
+- STARTTLS 是 SMTP 的标准 - 加密邮件是正常的
+- DPI 系统预期会看到 TLS 加密的 SMTP 流量
+- 加密内容不会引起警觉
+
+### 3️⃣ 灵活的协议
+- SMTP 允许大数据传输（附件）
+- 二进制数据是正常的（MIME 编码的附件）
+- 长连接是可接受的
+
+### 4️⃣ 难以阻止
+- 阻止端口 587 会破坏所有人的电子邮件
+- 在 TLS 后难以区分隧道和真实邮件
+- 需要阻止所有加密邮件
+
+---
+
+## 🎭 如何绕过 DPI
+
+深度包检测（DPI）系统分析网络流量以识别和阻止某些协议或内容。以下是 SMTP 隧道如何规避检测：
+
+### 🔍 阶段 1：欺骗（明文）
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    DPI CAN SEE THIS                          │
+│                    DPI 可以看到此内容                          │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │  Server: 220 mail.example.com ESMTP Postfix (Ubuntu)         │
@@ -66,52 +66,52 @@ Deep Packet Inspection (DPI) systems analyze network traffic to identify and blo
 │  Client: STARTTLS                                            │
 │  Server: 220 2.0.0 Ready to start TLS                        │
 │                                                              │
-│  DPI Analysis: "This is a normal email server connection"    │
+│  DPI 分析: "这是一个正常的邮件服务器连接"                      │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**What DPI sees:**
-- Standard SMTP greeting from "Postfix" mail server
-- Normal capability negotiation
-- STARTTLS upgrade (expected for secure email)
+**DPI 看到的内容：**
+- 来自 "Postfix" 邮件服务器的标准 SMTP 问候
+- 正常的能力协商
+- STARTTLS 升级（安全邮件所预期）
 
-**What makes it convincing:**
-- Greeting matches real Postfix servers
-- Capabilities list is realistic
-- Proper RFC 5321 compliance
-- Port 587 is standard SMTP submission port
+**使其具有说服力的原因：**
+- 问候语匹配真实的 Postfix 服务器
+- 能力列表是现实的
+- 符合 RFC 5321 规范
+- 端口 587 是标准的 SMTP 提交端口
 
-### 🔒 Phase 2: TLS Handshake
+### 🔒 阶段 2：TLS 握手
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    DPI CAN SEE THIS                          │
+│                    DPI 可以看到此内容                          │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  [TLS 1.2/1.3 Handshake]                                     │
+│  [TLS 1.2/1.3 握手]                                         │
 │  - Client Hello                                              │
 │  - Server Hello                                              │
-│  - Certificate Exchange                                      │
-│  - Key Exchange                                              │
-│  - Finished                                                  │
+│  - 证书交换                                                   │
+│  - 密钥交换                                                   │
+│  - 完成                                                       │
 │                                                              │
-│  DPI Analysis: "Normal TLS for email encryption"             │
+│  DPI 分析: "邮件加密的正常 TLS"                               │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**What DPI sees:**
-- Standard TLS handshake
-- Server certificate for mail domain
-- Normal cipher negotiation
+**DPI 看到的内容：**
+- 标准 TLS 握手
+- 邮件域的服务器证书
+- 正常的密码协商
 
-### 🚀 Phase 3: Encrypted Tunnel (Invisible)
+### 🚀 阶段 3：加密隧道（不可见）
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   DPI CANNOT SEE THIS                        │
-│                   (Encrypted with TLS)                       │
+│                   DPI 无法看到此内容                          │
+│                   (使用 TLS 加密)                            │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │  Client: EHLO client.local                                   │
@@ -123,604 +123,284 @@ Deep Packet Inspection (DPI) systems analyze network traffic to identify and blo
 │  Client: BINARY                                              │
 │  Server: 299 Binary mode activated                           │
 │                                                              │
-│  [Binary streaming begins - raw TCP tunnel]                  │
+│  [二进制流开始 - 原始 TCP 隧道]                               │
 │                                                              │
-│  DPI Analysis: "Encrypted email session, cannot inspect"     │
+│  DPI 分析: "加密的邮件会话，无法检查"                          │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**What DPI sees:**
-- Encrypted TLS traffic
-- Packet sizes and timing consistent with email
-- Cannot inspect content
+**DPI 看到的内容：**
+- 加密的 TLS 流量
+- 数据包大小和时间与邮件一致
+- 无法检查内容
 
-**What actually happens:**
-- Authentication with pre-shared key
-- Switch to binary streaming mode
-- Full-speed TCP tunneling
+**实际发生的情况：**
+- 使用预共享密钥进行身份验证
+- 切换到二进制流模式
+- 全速 TCP 隧道传输
 
-### ❌ Why DPI Can't Detect It
+### ❌ 为什么 DPI 无法检测它
 
-| DPI Technique | Why It Fails |
+| DPI 技术 | 为什么失败 |
 |---------------|--------------|
-| **Port Analysis** | Uses standard SMTP port 587 |
-| **Protocol Detection** | Initial handshake is valid SMTP |
-| **TLS Fingerprinting** | Standard Python SSL library |
-| **Packet Size Analysis** | Variable sizes, similar to email |
-| **Timing Analysis** | No distinctive patterns |
-| **Deep Inspection** | Content encrypted with TLS |
+| **端口分析** | 使用标准 SMTP 端口 587 |
+| **协议检测** | 初始握手是有效的 SMTP |
+| **TLS 指纹识别** | 标准 Python SSL 库 |
+| **数据包大小分析** | 可变大小，类似于邮件 |
+| **时序分析** | 没有明显的模式 |
+| **深度检查** | 内容使用 TLS 加密 |
 
 ---
 
-## ⚡ Why It's Fast
+## ⚡ 为什么速度快
 
-Previous versions used SMTP commands for every data packet, requiring:
-- 4 round-trips per data chunk (MAIL FROM → RCPT TO → DATA → response)
-- Base64 encoding (33% overhead)
-- MIME wrapping (more overhead)
+以前的版本对每个数据包都使用 SMTP 命令，需要：
+- 每个数据块 4 次往返（MAIL FROM → RCPT TO → DATA → 响应）
+- Base64 编码（33% 开销）
+- MIME 包装（更多开销）
 
-### 🚀 The New Approach: Protocol Upgrade
+### 🚀 新方法：协议升级
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    HANDSHAKE PHASE                          │
-│                    (One time only)                          │
+│                    握手阶段                                  │
+│                    (仅一次)                                  │
 ├─────────────────────────────────────────────────────────────┤
 │  EHLO → STARTTLS → TLS → EHLO → AUTH → BINARY               │
 │                                                             │
-│  Time: ~200-500ms (network latency dependent)               │
+│  时间: ~200-500ms（取决于网络延迟）                          │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    STREAMING PHASE                          │
-│                    (Rest of session)                        │
+│                    流阶段                                    │
+│                    (会话的其余部分)                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌─────────┬────────────┬────────────┬─────────────┐        │
-│  │  Type   │ Channel ID │   Length   │   Payload   │        │
-│  │ 1 byte  │  2 bytes   │  2 bytes   │  N bytes    │        │
+│  │  类型   │  通道 ID   │   长度     │   负载      │        │
+│  │ 1 字节  │  2 字节    │  2 字节    │  N 字节     │        │
 │  └─────────┴────────────┴────────────┴─────────────┘        │
 │                                                             │
-│  - Full duplex - send and receive simultaneously            │
-│  - No waiting for responses                                 │
-│  - 5 bytes overhead per frame (vs hundreds for SMTP)        │
-│  - Raw binary - no base64 encoding                          │
-│  - Speed limited only by network bandwidth                  │
+│  - 全双工 - 同时发送和接收                                   │
+│  - 无需等待响应                                              │
+│  - 每帧 5 字节开销（vs SMTP 数百字节）                        │
+│  - 原始二进制 - 无 base64 编码                               │
+│  - 速度仅受网络带宽限制                                      │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 📊 Performance Comparison
+### 📊 性能比较
 
-| Metric | Old SMTP Method | New Binary Method |
+| 指标 | 旧 SMTP 方法 | 新二进制方法 |
 |--------|-----------------|-------------------|
-| **Overhead per packet** | ~500+ bytes | 5 bytes |
-| **Round trips per send** | 4 | 0 (streaming) |
-| **Encoding overhead** | 33% (base64) | 0% |
-| **Duplex mode** | Half-duplex | Full-duplex |
-| **Effective speed** | ~10-50 KB/s | Limited by bandwidth |
+| **每个数据包的开销** | ~500+ 字节 | 5 字节 |
+| **每次发送的往返次数** | 4 | 0（流式传输） |
+| **编码开销** | 33%（base64） | 0% |
+| **双工模式** | 半双工 | 全双工 |
+| **有效速度** | ~10-50 KB/s | 受带宽限制 |
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ 架构
 
-### 🖥️ System Components
+### 🖥️ 系统组件
 
 ```
-YOUR COMPUTER                           YOUR VPS                        INTERNET
+您的计算机                           您的 VPS                        互联网
 ┌────────────────────┐                  ┌────────────────────┐          ┌─────────┐
 │                    │                  │                    │          │         │
-│  ┌──────────────┐  │                  │  ┌──────────────┐  │          │ Website │
-│  │   Browser    │  │                  │  │    Server    │  │          │   API   │
-│  │   or App     │  │                  │  │   server.py  │  │          │ Service │
+│  ┌──────────────┐  │                  │  ┌──────────────┐  │          │ 网站    │
+│  │   浏览器      │  │                  │  │    服务器    │  │          │   API   │
+│  │   或应用     │  │                  │  │   server.py  │  │          │ 服务    │
 │  └──────┬───────┘  │                  │  └──────┬───────┘  │          │         │
 │         │          │                  │         │          │          └────┬────┘
 │         │ SOCKS5   │                  │         │ TCP      │               │
 │         ▼          │                  │         ▼          │               │
-│  ┌──────────────┐  │   TLS Tunnel     │  ┌──────────────┐  │               │
-│  │    Client    │◀─┼──────────────────┼─▶│   Outbound   │◀─┼───────────────┘
-│  │   client.py  │  │   Port 587       │  │  Connector   │  │
+│  ┌──────────────┐  │   TLS 隧道      │  ┌──────────────┐  │               │
+│  │    客户端    │◀─┼──────────────────┼─▶│   出站连接   │◀─┼───────────────┘
+│  │   client.py  │  │   端口 587       │  │  Connector   │  │
 │  └──────────────┘  │                  │  └──────────────┘  │
 │                    │                  │                    │
 └────────────────────┘                  └────────────────────┘
-     Censored Network                      Free Internet
+     受审查的网络                          自由互联网
 ```
 
-### 📡 Data Flow
+### 📡 数据流
 
 ```
-1. Browser wants to access https://example.com
+1. 浏览器想要访问 https://example.com
 
-2. Browser → SOCKS5 (client.py:1080)
+2. 浏览器 → SOCKS5 (client.py:1080)
    "CONNECT example.com:443"
 
-3. Client → Server (port 587, looks like SMTP)
-   [FRAME: CONNECT, channel=1, "example.com:443"]
+3. 客户端 → 服务器 (端口 587，看起来像 SMTP)
+   [帧: CONNECT, channel=1, "example.com:443"]
 
-4. Server → example.com:443
-   [Opens real TCP connection]
+4. 服务器 → example.com:443
+   [打开真实的 TCP 连接]
 
-5. Server → Client
-   [FRAME: CONNECT_OK, channel=1]
+5. 服务器 → 客户端
+   [帧: CONNECT_OK, channel=1]
 
-6. Browser ↔ Client ↔ Server ↔ example.com
-   [Bidirectional data streaming]
+6. 浏览器 ↔ 客户端 ↔ 服务器 ↔ example.com
+   [双向数据流]
 ```
 
 ---
 
-## 📐 Protocol Design
+## 📐 协议设计
 
-### 📦 Frame Format (Binary Mode)
+### 📦 帧格式（二进制模式）
 
-All communication after handshake uses this simple binary frame format:
+握手后的所有通信都使用这种简单的二进制帧格式：
 
 ```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 ├─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┤
-│     Type      │          Channel ID           │    Length     │
+│     类型      │          通道 ID           │    长度       │
 ├───────────────┼───────────────────────────────┼───────────────┤
-│    Length     │            Payload...                         │
+│    长度       │            负载...                          │
 ├───────────────┼───────────────────────────────────────────────┤
-│                        Payload (continued)                    │
+│                        负载（继续）                          │
 └───────────────────────────────────────────────────────────────┘
 
-Type (1 byte):
-  0x01 = DATA         - Tunnel data
-  0x02 = CONNECT      - Open new channel
-  0x03 = CONNECT_OK   - Connection successful
-  0x04 = CONNECT_FAIL - Connection failed
-  0x05 = CLOSE        - Close channel
+类型 (1 字节):
+  0x01 = DATA         - 隧道数据
+  0x02 = CONNECT      - 打开新通道
+  0x03 = CONNECT_OK   - 连接成功
+  0x04 = CONNECT_FAIL - 连接失败
+  0x05 = CLOSE        - 关闭通道
 
-Channel ID (2 bytes): Identifies the connection (supports 65535 simultaneous connections)
-Length (2 bytes): Payload size (max 65535 bytes)
-Payload (variable): The actual data
+通道 ID (2 字节): 标识连接（支持 65535 个同时连接）
+长度 (2 字节): 负载大小（最大 65535 字节）
+负载 (可变): 实际数据
 ```
 
-### 🔗 CONNECT Payload Format
+### 🔗 CONNECT 负载格式
 
 ```
 ┌───────────────┬─────────────────────────┬───────────────┐
-│  Host Length  │         Host            │     Port      │
-│   (1 byte)    │    (variable, UTF-8)    │   (2 bytes)   │
+│  主机长度     │         主机             │     端口      │
+│   (1 字节)    │    (可变, UTF-8)         │   (2 字节)    │
 └───────────────┴─────────────────────────┴───────────────┘
 ```
 
-### 🔄 Session State Machine
+### 🔄 会话状态机
 
 ```
                     ┌─────────┐
-                    │  START  │
+                    │  开始   │
                     └────┬────┘
                          │
                          ▼
               ┌─────────────────────┐
-              │   TCP Connected     │
+              │   TCP 已连接        │
               └──────────┬──────────┘
-                         │ 220 greeting
+                         │ 220 问候
                          ▼
               ┌─────────────────────┐
-              │   EHLO Exchange     │
+              │   EHLO 交换         │
               └──────────┬──────────┘
                          │ 250 OK
                          ▼
               ┌─────────────────────┐
-              │     STARTTLS        │
+              │     STARTTLS       │
               └──────────┬──────────┘
-                         │ 220 Ready
+                         │ 220 就绪
                          ▼
               ┌─────────────────────┐
-              │   TLS Handshake     │
+              │   TLS 握手          │
               └──────────┬──────────┘
-                         │ Success
+                         │ 成功
                          ▼
               ┌─────────────────────┐
-              │   EHLO (post-TLS)   │
+              │   EHLO (TLS 后)     │
               └──────────┬──────────┘
                          │ 250 OK
                          ▼
               ┌─────────────────────┐
               │   AUTH PLAIN        │
               └──────────┬──────────┘
-                         │ 235 Success
+                         │ 235 成功
                          ▼
               ┌─────────────────────┐
-              │   BINARY Command    │
+              │   BINARY 命令       │
               └──────────┬──────────┘
                          │ 299 OK
                          ▼
               ┌─────────────────────┐
-              │   Binary Streaming  │◀──────┐
-              │   (Full Duplex)     │───────┘
+              │   二进制流传输      │◀──────┐
+              │   (全双工)           │───────┘
               └─────────────────────┘
 ```
 
 ---
 
-## 🔧 Component Details
+## 🔧 组件详情
 
-### 🖥️ server.py - Server Component
+### 🖥️ server.py - 服务器组件
 
-**Purpose:** Runs on your VPS in an uncensored network. Accepts tunnel connections and forwards traffic to the real internet.
+**用途：** 在不受审查的网络中的 VPS 上运行。接受隧道连接并将流量转发到真实的互联网。
 
-**What it does:**
-- Listens on port 587 (SMTP submission)
-- Presents itself as a Postfix mail server
-- Handles SMTP handshake (EHLO, STARTTLS, AUTH)
-- Switches to binary streaming mode after authentication
-- Manages multiple tunnel channels
-- Forwards data to destination servers
-- Sends responses back through the tunnel
+**功能：**
+- 监听端口 587（SMTP 提交端口）
+- 表现为 Postfix 邮件服务器
+- 处理 SMTP 握手（EHLO、STARTTLS、AUTH）
+- 身份验证后切换到二进制流模式
+- 管理多个隧道通道
+- 将数据转发到目标服务器
+- 通过隧道发回响应
 
-**Key Classes:**
-| Class | Description |
+**关键类：**
+| 类 | 描述 |
 |-------|-------------|
-| `TunnelServer` | Main server, accepts connections |
-| `TunnelSession` | Handles one client connection |
-| `Channel` | Represents one tunneled TCP connection |
+| `TunnelServer` | 主服务器，接受连接 |
+| `TunnelSession` | 处理一个客户端连接 |
+| `Channel` | 表示一个隧道 TCP 连接 |
 
-### 💻 client.py - Client Component
+### 💻 client.py - 客户端组件
 
-**Purpose:** Runs on your local computer. Provides a SOCKS5 proxy interface and tunnels traffic through the server.
+**用途：** 在本地计算机上运行。提供 SOCKS5 代理接口并通过服务器隧道传输流量。
 
-**What it does:**
-- Runs SOCKS5 proxy server on localhost:1080
-- Connects to tunnel server on port 587
-- Performs SMTP handshake to look legitimate
-- Switches to binary streaming mode
-- Multiplexes multiple connections over single tunnel
-- Handles SOCKS5 CONNECT requests from applications
+**功能：**
+- 在 localhost:1080 上运行 SOCKS5 代理服务器
+- 连接到端口 587 上的隧道服务器
+- 执行 SMTP 握手以看起来合法
+- 切换到二进制流模式
+- 在单个隧道上多路复用多个连接
+- 处理来自应用程序的 SOCKS5 CONNECT 请求
 
-**Key Classes:**
-| Class | Description |
+**关键类：**
+| 类 | 描述 |
 |-------|-------------|
-| `TunnelClient` | Manages connection to server |
-| `SOCKS5Server` | Local SOCKS5 proxy |
-| `Channel` | One proxied connection |
+| `TunnelClient` | 管理与服务器的连接 |
+| `SOCKS5Server` | 本地 SOCKS5 代理 |
+| `Channel` | 一个代理连接 |
 
-### 📚 common.py - Shared Utilities
+### 📚 common.py - 共享工具
 
-**Purpose:** Code shared between client and server.
+**用途：** 客户端和服务器之间共享的代码。
 
-**What it contains:**
-| Component | Description |
+**包含内容：**
+| 组件 | 描述 |
 |-----------|-------------|
-| `TunnelCrypto` | Handles authentication tokens |
-| `TrafficShaper` | Padding and timing (optional stealth) |
-| `SMTPMessageGenerator` | Generates realistic email content (legacy) |
-| `FrameBuffer` | Parses binary frames from stream |
-| `load_config()` | YAML configuration loader |
-| `ServerConfig` | Server configuration dataclass |
-| `ClientConfig` | Client configuration dataclass |
+| `TunnelCrypto` | 处理身份验证令牌 |
+| `TrafficShaper` | 填充和时序（可选的隐蔽性） |
+| `SMTPMessageGenerator` | 生成真实的邮件内容（遗留） |
+| `FrameBuffer` | 从流中解析二进制帧 |
+| `load_config()` | YAML 配置加载器 |
+| `ServerConfig` | 服务器配置数据类 |
+| `ClientConfig` | 客户端配置数据类 |
 
-### 🔐 generate_certs.py - Certificate Generator
+### 🔐 generate_certs.py - 证书生成器
 
-**Purpose:** Creates TLS certificates for the tunnel.
+**用途：** 为隧道创建 TLS 证书。
 
-**What it generates:**
-| File | Description |
+**生成内容：**
+| 文件 | 描述 |
 |------|-------------|
-| `ca.key` | Certificate Authority private key |
-| `ca.crt` | Certificate Authority certificate |
-| `server.key` | Server private key |
-| `server.crt` | Server certificate (signed by CA) |
-
-**Features:**
-- Customizable hostname in certificate
-- Configurable key size (default 2048-bit RSA)
-- Configurable validity period
-- Includes proper extensions for TLS server auth
-
----
-
-## 🔐 Security Analysis
-
-### 🔑 Authentication Flow
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  Authentication Flow                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  1. Client generates timestamp                              │
-│                                                             │
-│  2. Client computes:                                        │
-│     HMAC-SHA256(secret, "smtp-tunnel-auth:" + timestamp)    │
-│                                                             │
-│  3. Client sends: AUTH PLAIN base64(timestamp + ":" + hmac) │
-│                                                             │
-│  4. Server verifies:                                        │
-│     - Timestamp within 5 minutes (prevents replay)          │
-│     - HMAC matches (proves knowledge of secret)             │
-│                                                             │
-│  5. Server responds: 235 Authentication successful          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 🔒 Encryption Layers
-
-| Layer | Protection |
-|-------|------------|
-| **TLS 1.2+** | All traffic after STARTTLS |
-| **Pre-shared Key** | Authentication |
-| **HMAC-SHA256** | Token integrity |
-
-### ⚠️ Threat Model
-
-| Threat | Mitigation |
-|--------|------------|
-| Passive eavesdropping | TLS encryption |
-| Active MITM | Certificate verification (requires domain) |
-| Replay attacks | Timestamp validation (5-minute window) |
-| Unauthorized access | Pre-shared key authentication |
-| Protocol detection | SMTP mimicry during handshake |
-
-### ✅ Security Recommendations
-
-1. **Use a strong secret:** Generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`
-
-2. **Keep secret secure:** Never commit to version control, share securely
-
-3. **Use certificate verification:** Copy `ca.crt` to client and set `ca_cert` in config
-
-4. **Restrict server access:** Use whitelist to limit source IPs if possible
-
-5. **Monitor logs:** Watch for failed authentication attempts
-
-6. **Update regularly:** Keep Python and dependencies updated
-
----
-
-## 🌐 Domain Name vs IP Address: Security Implications
-
-### 🔍 Understanding TLS Certificate Verification
-
-TLS certificates are digital documents that prove a server's identity. When your client connects to a server, it can verify:
-
-1. **The certificate is signed by a trusted authority** (in our case, your own CA)
-2. **The certificate matches who you're connecting to** (hostname/IP verification)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     TLS Certificate Verification Process                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Client wants to connect to: mail.example.com                               │
-│                                                                             │
-│  Step 1: Server presents certificate                                        │
-│          ┌─────────────────────────────────────┐                            │
-│          │ Certificate Contents:               │                            │
-│          │   Subject: mail.example.com         │                            │
-│          │   SAN: DNSName=mail.example.com     │                            │
-│          │   Signed by: Your CA                │                            │
-│          └─────────────────────────────────────┘                            │
-│                                                                             │
-│  Step 2: Client checks                                                      │
-│          - Is certificate signed by trusted CA? → YES                       │
-│          - Does "mail.example.com" match SAN?   → YES                       │
-│                                                                             │
-│  Step 3: Connection established securely                                    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### ❌ The IP Address Problem
-
-TLS certificates store identifiers in specific fields within the **Subject Alternative Name (SAN)** extension:
-
-| Identifier Type | SAN Field Type | Example |
-|-----------------|----------------|---------|
-| Domain name | `DNSName` | `mail.example.com` |
-| IP address | `IPAddress` | `192.168.1.100` |
-
-**These are different field types.** A certificate generated with `--hostname 192.168.1.100` creates:
-
-```
-SAN: DNSName = "192.168.1.100"    ← This is what happens
-SAN: IPAddress = 192.168.1.100   ← This is what would be needed
-```
-
-When the TLS library verifies a connection to an IP address, it looks for a matching `IPAddress` field, **not** a `DNSName` field. Even if the values are identical, the types don't match, so verification fails.
-
-### 🚨 Man-in-the-Middle Attack Explained
-
-When certificate verification is disabled, an attacker can intercept your connection:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Man-in-the-Middle Attack Scenario                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  WITHOUT Certificate Verification (ca_cert not set):                        │
-│                                                                             │
-│  ┌────────┐       ┌────────────┐       ┌────────────┐       ┌────────┐     │
-│  │ Client │──────▶│  Attacker  │──────▶│  Firewall  │──────▶│ Server │     │
-│  │        │◀──────│  (MITM)    │◀──────│   (DPI)    │◀──────│        │     │
-│  └────────┘       └────────────┘       └────────────┘       └────────┘     │
-│       │                 │                                                   │
-│       │    Attacker presents          Attacker decrypts your traffic,      │
-│       │    their own certificate      reads everything, re-encrypts        │
-│       │                               and forwards to real server          │
-│       │                 │                                                   │
-│       │    Client accepts it                                                │
-│       │    (no verification!)                                               │
-│       │                                                                     │
-│       ▼                                                                     │
-│    YOUR TRAFFIC IS COMPLETELY EXPOSED TO THE ATTACKER                       │
-│                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  WITH Certificate Verification (ca_cert set + domain name):                 │
-│                                                                             │
-│  ┌────────┐       ┌────────────┐                                            │
-│  │ Client │──────▶│  Attacker  │                                            │
-│  │        │   X   │  (MITM)    │                                            │
-│  └────────┘       └────────────┘                                            │
-│       │                 │                                                   │
-│       │    Attacker presents          Client checks certificate:           │
-│       │    their own certificate      "This isn't signed by my CA!"        │
-│       │                               CONNECTION REFUSED                    │
-│       │                 │                                                   │
-│       │    Attack blocked!                                                  │
-│       │                                                                     │
-│       ▼                                                                     │
-│    Client connects directly to real server (or not at all)                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 📊 Security Options Comparison
-
-| Configuration | MITM Protected? | Works? | Recommended? |
-|---------------|-----------------|--------|--------------|
-| Domain + `ca_cert` set | **YES** | YES | **BEST** |
-| Domain + no `ca_cert` | NO | YES | Not ideal |
-| IP address + `ca_cert` set | — | NO | Won't work |
-| IP address + no `ca_cert` | NO | YES | Vulnerable |
-
-### 🎯 Risk Assessment
-
-| Threat | With Verification | Without Verification |
-|--------|-------------------|----------------------|
-| Passive eavesdropping | Protected (TLS) | Protected (TLS) |
-| Active MITM by ISP | Protected | **Vulnerable** |
-| Active MITM by government | Protected | **Vulnerable** |
-| Server impersonation | Protected | **Vulnerable** |
-| DPI bypass | Works | Works |
-
-**Bottom line:** TLS encryption protects against passive eavesdropping in both cases. But only with certificate verification are you protected against **active** attacks where someone intercepts and impersonates your server.
-
----
-
-## ⚙️ Advanced Configuration
-
-### 📝 Full Configuration Reference
-
-```yaml
-# ============================================================================
-# Server Configuration (for server.py on VPS)
-# ============================================================================
-server:
-  # Interface to listen on
-  # "0.0.0.0" = all interfaces (recommended)
-  # "127.0.0.1" = localhost only
-  host: "0.0.0.0"
-
-  # Port to listen on
-  # 587 = SMTP submission (recommended, expected for email)
-  # 465 = SMTPS (alternative)
-  # 25 = SMTP (often blocked)
-  port: 587
-
-  # Hostname for SMTP greeting and TLS certificate
-  # Should match your server's DNS name for authenticity
-  hostname: "mail.example.com"
-
-  # Pre-shared secret for authentication
-  # MUST be identical on client and server
-  # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
-  secret: "CHANGE-ME-TO-RANDOM-SECRET"
-
-  # TLS certificate files
-  cert_file: "server.crt"
-  key_file: "server.key"
-
-  # IP whitelist (optional)
-  # Empty list = allow all connections
-  # Supports individual IPs and CIDR notation
-  whitelist: []
-  # whitelist:
-  #   - "192.168.1.100"
-  #   - "10.0.0.0/8"
-
-# ============================================================================
-# Client Configuration (for client.py on local machine)
-# ============================================================================
-client:
-  # Server domain name (FQDN required for certificate verification)
-  # Use free DNS: DuckDNS, No-IP, FreeDNS, Dynu, or CloudFlare
-  server_host: "yourdomain.duckdns.org"
-
-  # Server port (must match server config)
-  server_port: 587
-
-  # Local SOCKS5 proxy port
-  socks_port: 1080
-
-  # Local SOCKS5 bind address
-  # "127.0.0.1" = localhost only (recommended)
-  # "0.0.0.0" = allow external connections (use with caution!)
-  socks_host: "127.0.0.1"
-
-  # Pre-shared secret (MUST match server!)
-  secret: "CHANGE-ME-TO-RANDOM-SECRET"
-
-  # CA certificate for server verification (RECOMMENDED)
-  # Required to prevent Man-in-the-Middle attacks
-  # Copy ca.crt from server to client
-  ca_cert: "ca.crt"
-
-# ============================================================================
-# Stealth Configuration (optional, for legacy SMTP mode)
-# ============================================================================
-stealth:
-  # Random delay range between messages (milliseconds)
-  min_delay_ms: 50
-  max_delay_ms: 500
-
-  # Message padding sizes
-  pad_to_sizes:
-    - 4096
-    - 8192
-    - 16384
-
-  # Probability of dummy messages
-  dummy_message_probability: 0.1
-```
-
-### 📜 SMTP Protocol Compliance
-
-The tunnel implements these SMTP RFCs during handshake:
-- **RFC 5321** - Simple Mail Transfer Protocol
-- **RFC 3207** - SMTP Service Extension for Secure SMTP over TLS
-- **RFC 4954** - SMTP Service Extension for Authentication
-
-### 📡 Multiplexing
-
-Multiple TCP connections are multiplexed over a single tunnel:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Single TLS Connection                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Channel 1: Browser Tab 1 → google.com:443                  │
-│  Channel 2: Browser Tab 2 → github.com:443                  │
-│  Channel 3: curl → ifconfig.me:443                          │
-│  Channel 4: SSH → remote-server:22                          │
-│  ...                                                        │
-│  Channel 65535: Maximum concurrent connections              │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 💾 Memory Usage
-
-- **Server:** ~50MB base + ~1MB per active connection
-- **Client:** ~30MB base + ~0.5MB per active channel
-
-### ⚙️ Concurrency Model
-
-Both client and server use Python's `asyncio` for efficient handling of multiple simultaneous connections without threads.
-
----
-
-## 📋 Version Information
-
-- **Current Version:** 1.2.0
-- **Protocol Version:** Binary streaming v1
-- **Minimum Python:** 3.8
+| `ca.key` | 证书颁发机构私钥 |

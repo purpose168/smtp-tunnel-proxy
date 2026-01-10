@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-SMTP Tunnel Server - Fast Binary Mode
+SMTP 隧道服务器 - 快速二进制模式
 
-Version: 1.3.0
+版本: 1.3.0
 
-Protocol:
-1. SMTP handshake (EHLO, STARTTLS, AUTH) - looks like real SMTP
-2. After AUTH success, switch to binary streaming mode
-3. Full-duplex binary protocol - no more SMTP overhead
+协议:
+1. SMTP 握手 (EHLO, STARTTLS, AUTH) - 看起来像真实的 SMTP
+2. AUTH 成功后，切换到二进制流模式
+3. 全双工二进制协议 - 不再有 SMTP 开销
 
-Features:
-- Multi-user support with per-user secrets
-- Per-user IP whitelist
-- Per-user logging (optional)
+特性:
+- 支持多用户，每个用户有独立的密钥
+- 每用户 IP 白名单
+- 每用户日志记录（可选）
 """
 
 import asyncio
@@ -36,10 +36,10 @@ logger = logging.getLogger('smtp-tunnel-server')
 
 
 # ============================================================================
-# Binary Protocol (used after SMTP handshake)
+# 二进制协议（SMTP 握手后使用）
 # ============================================================================
 
-# Frame types
+# 帧类型
 FRAME_DATA = 0x01
 FRAME_CONNECT = 0x02
 FRAME_CONNECT_OK = 0x03
@@ -47,11 +47,11 @@ FRAME_CONNECT_FAIL = 0x04
 FRAME_CLOSE = 0x05
 
 def make_frame(frame_type: int, channel_id: int, payload: bytes = b'') -> bytes:
-    """Create a binary frame: type(1) + channel(2) + length(2) + payload"""
+    """创建二进制帧: 类型(1) + 通道(2) + 长度(2) + 负载"""
     return struct.pack('>BHH', frame_type, channel_id, len(payload)) + payload
 
 def parse_frame_header(data: bytes):
-    """Parse frame header, returns (type, channel_id, payload_len) or None"""
+    """解析帧头，返回 (类型, 通道ID, 负载长度) 或 None"""
     if len(data) < 5:
         return None
     frame_type, channel_id, payload_len = struct.unpack('>BHH', data[:5])
@@ -61,7 +61,7 @@ FRAME_HEADER_SIZE = 5
 
 
 # ============================================================================
-# Channel - A tunneled TCP connection
+# 通道 - 隧道化的 TCP 连接
 # ============================================================================
 
 @dataclass
@@ -75,7 +75,7 @@ class Channel:
 
 
 # ============================================================================
-# Tunnel Session
+# 隧道会话
 # ============================================================================
 
 class TunnelSession:
@@ -97,7 +97,7 @@ class TunnelSession:
         self.channels: Dict[int, Channel] = {}
         self.write_lock = asyncio.Lock()
 
-        # User info (set after authentication)
+        # 用户信息（认证后设置）
         self.username: Optional[str] = None
         self.user_config: Optional[UserConfig] = None
 
@@ -106,9 +106,9 @@ class TunnelSession:
         self.peer_str = f"{peer[0]}:{peer[1]}" if peer else "unknown"
 
     def _log(self, level: int, msg: str):
-        """Log message with optional user info."""
+        """记录日志消息，可选包含用户信息。"""
         if self.user_config and not self.user_config.logging:
-            return  # Logging disabled for this user
+            return  # 此用户已禁用日志记录
 
         if self.username:
             logger.log(level, f"[{self.username}] {msg}")
@@ -116,55 +116,55 @@ class TunnelSession:
             logger.log(level, msg)
 
     async def run(self):
-        """Main session handler."""
-        logger.info(f"Connection from {self.peer_str}")
+        """主会话处理器。"""
+        logger.info(f"来自 {self.peer_str} 的连接")
 
         try:
-            # Phase 1: SMTP handshake
+            # 阶段 1: SMTP 握手
             if not await self._smtp_handshake():
                 return
 
-            self._log(logging.INFO, f"Authenticated, entering binary mode: {self.peer_str}")
+            self._log(logging.INFO, f"已认证，进入二进制模式: {self.peer_str}")
 
-            # Phase 2: Binary streaming mode
+            # 阶段 2: 二进制流模式
             await self._binary_mode()
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self._log(logging.ERROR, f"Session error: {e}")
+            self._log(logging.ERROR, f"会话错误: {e}")
         finally:
             await self._cleanup()
-            self._log(logging.INFO, f"Session ended: {self.peer_str}")
+            self._log(logging.INFO, f"会话结束: {self.peer_str}")
 
     async def _smtp_handshake(self) -> bool:
-        """Do SMTP handshake - this is what DPI sees."""
+        """执行 SMTP 握手 - 这是 DPI 看到的内容。"""
         try:
-            # Send greeting
+            # 发送问候
             await self._send_line(f"220 {self.config.hostname} ESMTP Postfix (Ubuntu)")
 
-            # Wait for EHLO
+            # 等待 EHLO
             line = await self._read_line()
             if not line or not line.upper().startswith(('EHLO', 'HELO')):
                 return False
 
-            # Send capabilities
+            # 发送能力
             await self._send_line(f"250-{self.config.hostname}")
             await self._send_line("250-STARTTLS")
             await self._send_line("250-AUTH PLAIN LOGIN")
             await self._send_line("250 8BITMIME")
 
-            # Wait for STARTTLS
+            # 等待 STARTTLS
             line = await self._read_line()
             if not line or line.upper() != 'STARTTLS':
                 return False
 
             await self._send_line("220 2.0.0 Ready to start TLS")
 
-            # Upgrade to TLS
+            # 升级到 TLS
             await self._upgrade_tls()
 
-            # Wait for EHLO again
+            # 再次等待 EHLO
             line = await self._read_line()
             if not line or not line.upper().startswith(('EHLO', 'HELO')):
                 return False
@@ -173,7 +173,7 @@ class TunnelSession:
             await self._send_line("250-AUTH PLAIN LOGIN")
             await self._send_line("250 8BITMIME")
 
-            # Wait for AUTH
+            # 等待 AUTH
             line = await self._read_line()
             if not line or not line.upper().startswith('AUTH'):
                 return False
@@ -185,30 +185,30 @@ class TunnelSession:
 
             token = parts[2]
 
-            # Multi-user authentication
+            # 多用户认证
             valid, username = TunnelCrypto.verify_auth_token_multi_user(token, self.users)
 
             if not valid or not username:
-                logger.warning(f"Authentication failed from {self.peer_str}")
+                logger.warning(f"来自 {self.peer_str} 的认证失败")
                 await self._send_line("535 5.7.8 Authentication failed")
                 return False
 
-            # Get user config
+            # 获取用户配置
             self.username = username
             self.user_config = self.users.get(username)
 
-            # Check per-user IP whitelist
+            # 检查每用户 IP 白名单
             if self.user_config and self.user_config.whitelist:
                 user_whitelist = IPWhitelist(self.user_config.whitelist)
                 if not user_whitelist.is_allowed(self.client_ip):
-                    logger.warning(f"User {username} not allowed from IP {self.client_ip}")
+                    logger.warning(f"用户 {username} 不允许从 IP {self.client_ip} 连接")
                     await self._send_line("535 5.7.8 Authentication failed")
                     return False
 
             await self._send_line("235 2.7.0 Authentication successful")
             self.authenticated = True
 
-            # Signal binary mode - client sends special marker
+            # 信号二进制模式 - 客户端发送特殊标记
             line = await self._read_line()
             if line == "BINARY":
                 await self._send_line("299 Binary mode activated")
@@ -218,11 +218,11 @@ class TunnelSession:
             return False
 
         except Exception as e:
-            logger.error(f"Handshake error: {e}")
+            logger.error(f"握手错误: {e}")
             return False
 
     async def _upgrade_tls(self):
-        """Upgrade connection to TLS."""
+        """升级连接到 TLS。"""
         transport = self.writer.transport
         protocol = self.writer._protocol
         loop = asyncio.get_event_loop()
@@ -233,15 +233,15 @@ class TunnelSession:
 
         self.writer._transport = new_transport
         self.reader._transport = new_transport
-        logger.debug(f"TLS established: {self.peer_str}")
+        logger.debug(f"TLS 已建立: {self.peer_str}")
 
     async def _send_line(self, line: str):
-        """Send SMTP line."""
+        """发送 SMTP 行。"""
         self.writer.write(f"{line}\r\n".encode())
         await self.writer.drain()
 
     async def _read_line(self) -> Optional[str]:
-        """Read SMTP line."""
+        """读取 SMTP 行。"""
         try:
             data = await asyncio.wait_for(self.reader.readline(), timeout=60.0)
             if not data:
@@ -251,27 +251,27 @@ class TunnelSession:
             return None
 
     async def _binary_mode(self):
-        """Handle binary streaming mode - this is FAST."""
+        """处理二进制流模式 - 这是快速模式。"""
         buffer = b''
 
         while True:
-            # Read data
+            # 读取数据
             try:
                 chunk = await asyncio.wait_for(self.reader.read(65536), timeout=60.0)
                 if not chunk:
-                    self._log(logging.DEBUG, "Connection closed by client")
+                    self._log(logging.DEBUG, "客户端关闭连接")
                     break
                 buffer += chunk
             except asyncio.TimeoutError:
-                # Check if connection is still alive
+                # 检查连接是否仍然存活
                 if self.writer.is_closing():
                     break
                 continue
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
-                self._log(logging.DEBUG, f"Connection error: {e}")
+                self._log(logging.DEBUG, f"连接错误: {e}")
                 break
 
-            # Process complete frames
+            # 处理完整的帧
             while len(buffer) >= FRAME_HEADER_SIZE:
                 header = parse_frame_header(buffer)
                 if not header:
@@ -289,7 +289,7 @@ class TunnelSession:
                 await self._handle_frame(frame_type, channel_id, payload)
 
     async def _handle_frame(self, frame_type: int, channel_id: int, payload: bytes):
-        """Handle a binary frame."""
+        """处理二进制帧。"""
         if frame_type == FRAME_CONNECT:
             await self._handle_connect(channel_id, payload)
         elif frame_type == FRAME_DATA:
@@ -298,9 +298,9 @@ class TunnelSession:
             await self._handle_close(channel_id)
 
     async def _handle_connect(self, channel_id: int, payload: bytes):
-        """Handle CONNECT request."""
+        """处理 CONNECT 请求。"""
         try:
-            # Parse: host_len(1) + host + port(2)
+            # 解析: host_len(1) + host + port(2)
             host_len = payload[0]
             host = payload[1:1+host_len].decode('utf-8')
             port = struct.unpack('>H', payload[1+host_len:3+host_len])[0]
@@ -323,23 +323,23 @@ class TunnelSession:
                 )
                 self.channels[channel_id] = channel
 
-                # Start reading from destination
+                # 开始从目标读取
                 asyncio.create_task(self._channel_reader(channel))
 
-                # Send success
+                # 发送成功
                 await self._send_frame(FRAME_CONNECT_OK, channel_id)
                 logger.info(f"CONNECTED ch={channel_id}")
 
             except Exception as e:
-                logger.error(f"Connect failed: {e}")
+                logger.error(f"连接失败: {e}")
                 await self._send_frame(FRAME_CONNECT_FAIL, channel_id, str(e).encode()[:100])
 
         except Exception as e:
-            logger.error(f"Handle connect error: {e}")
+            logger.error(f"处理连接错误: {e}")
             await self._send_frame(FRAME_CONNECT_FAIL, channel_id)
 
     async def _handle_data(self, channel_id: int, payload: bytes):
-        """Forward data to destination."""
+        """转发数据到目标。"""
         channel = self.channels.get(channel_id)
         if channel and channel.connected and channel.writer:
             try:
@@ -349,13 +349,13 @@ class TunnelSession:
                 await self._close_channel(channel)
 
     async def _handle_close(self, channel_id: int):
-        """Close channel."""
+        """关闭通道。"""
         channel = self.channels.get(channel_id)
         if channel:
             await self._close_channel(channel)
 
     async def _channel_reader(self, channel: Channel):
-        """Read from destination and send to client."""
+        """从目标读取并发送到客户端。"""
         try:
             while channel.connected:
                 data = await asyncio.wait_for(
@@ -370,14 +370,14 @@ class TunnelSession:
         except asyncio.TimeoutError:
             pass
         except Exception as e:
-            logger.debug(f"Channel reader error: {e}")
+            logger.debug(f"通道读取器错误: {e}")
         finally:
             if channel.connected:
                 await self._send_frame(FRAME_CLOSE, channel.channel_id)
                 await self._close_channel(channel)
 
     async def _send_frame(self, frame_type: int, channel_id: int, payload: bytes = b''):
-        """Send binary frame to client."""
+        """发送二进制帧到客户端。"""
         if self.writer.is_closing():
             return
         try:
@@ -389,7 +389,7 @@ class TunnelSession:
             pass
 
     async def _close_channel(self, channel: Channel):
-        """Close a channel."""
+        """关闭通道。"""
         if not channel.connected:
             return
         channel.connected = False
@@ -404,7 +404,7 @@ class TunnelSession:
         self.channels.pop(channel.channel_id, None)
 
     async def _cleanup(self):
-        """Cleanup session."""
+        """清理会话。"""
         for channel in list(self.channels.values()):
             await self._close_channel(channel)
         try:
@@ -415,7 +415,7 @@ class TunnelSession:
 
 
 # ============================================================================
-# Server
+# 服务器
 # ============================================================================
 
 class TunnelServer:
@@ -441,18 +441,18 @@ class TunnelServer:
             self.config.port
         )
         addr = server.sockets[0].getsockname()
-        logger.info(f"SMTP Tunnel Server on {addr[0]}:{addr[1]}")
-        logger.info(f"Hostname: {self.config.hostname}")
-        logger.info(f"Users loaded: {len(self.users)}")
+        logger.info(f"SMTP 隧道服务器运行于 {addr[0]}:{addr[1]}")
+        logger.info(f"主机名: {self.config.hostname}")
+        logger.info(f"已加载用户数: {len(self.users)}")
 
         async with server:
             await server.serve_forever()
 
 
 def main():
-    parser = argparse.ArgumentParser(description='SMTP Tunnel Server')
+    parser = argparse.ArgumentParser(description='SMTP 隧道服务器')
     parser.add_argument('--config', '-c', default='config.yaml')
-    parser.add_argument('--users', '-u', default=None, help='Users file (default: from config or users.yaml)')
+    parser.add_argument('--users', '-u', default=None, help='用户文件（默认: 从配置或 users.yaml）')
     parser.add_argument('--debug', '-d', action='store_true')
     args = parser.parse_args()
 
@@ -476,17 +476,17 @@ def main():
         log_users=server_conf.get('log_users', True),
     )
 
-    # Load users file (command line override or from config)
+    # 加载用户文件（命令行覆盖或从配置）
     users_file = args.users or config.users_file
     users = load_users(users_file)
 
     if not users:
-        logger.error(f"No users configured! Please create {users_file}")
-        logger.error("Use smtp-tunnel-adduser to add users")
+        logger.error(f"未配置用户！请创建 {users_file}")
+        logger.error("使用 smtp-tunnel-adduser 添加用户")
         return 1
 
     if not os.path.exists(config.cert_file):
-        logger.error(f"Certificate not found: {config.cert_file}")
+        logger.error(f"未找到证书: {config.cert_file}")
         return 1
 
     server = TunnelServer(config, users)
@@ -494,7 +494,7 @@ def main():
     try:
         asyncio.run(server.start())
     except KeyboardInterrupt:
-        logger.info("Server stopped")
+        logger.info("服务器已停止")
 
     return 0
 

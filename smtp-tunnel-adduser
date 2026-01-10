@@ -1,142 +1,142 @@
 #!/usr/bin/env python3
 """
-SMTP Tunnel - Add User Script
+SMTP 隧道 - 添加用户脚本
 
-Creates a new user and generates a client package (ZIP file).
+创建新用户并生成客户端包（ZIP 文件）。
 
-Version: 1.3.0
+版本: 1.3.0
 """
 
-import argparse
-import os
-import sys
-import secrets
-import zipfile
-import tempfile
-import shutil
+import argparse  # 命令行参数解析库
+import os        # 操作系统接口库
+import sys       # 系统相关功能库
+import secrets   # 安全随机数生成库
+import zipfile   # ZIP 文件操作库
+import tempfile  # 临时文件/目录创建库
+import shutil    # 高级文件操作库
 
-# Add current directory to path for imports
+# 将当前目录添加到导入路径，以便导入本地模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from common import load_users, save_users, load_config, UserConfig
+from common import load_users, save_users, load_config, UserConfig  # 导入通用函数和用户配置类
 
 
 def generate_secret() -> str:
-    """Generate a secure random secret."""
-    return secrets.token_urlsafe(32)
+    """生成安全的随机密钥。"""
+    return secrets.token_urlsafe(32)  # 生成32字节的URL安全随机密钥
 
 
 def create_client_config(server_host: str, server_port: int, username: str, secret: str) -> str:
-    """Generate client config.yaml content."""
-    return f"""# SMTP Tunnel Client Configuration
-# Generated for user: {username}
+    """生成客户端 config.yaml 配置内容。"""
+    return f"""# SMTP 隧道客户端配置
+# 为用户生成: {username}
 
 client:
-  # Server connection
-  server_host: "{server_host}"
-  server_port: {server_port}
+  # 服务器连接配置
+  server_host: "{server_host}"      # 服务器主机名
+  server_port: {server_port}        # 服务器端口
 
-  # Authentication
-  username: "{username}"
-  secret: "{secret}"
+  # 身份验证配置
+  username: "{username}"            # 用户名
+  secret: "{secret}"                # 身份验证密钥
 
-  # Local SOCKS5 proxy
-  socks_port: 1080
-  socks_host: "127.0.0.1"
+  # 本地 SOCKS5 代理配置
+  socks_port: 1080                  # SOCKS5 代理端口
+  socks_host: "127.0.0.1"          # SOCKS5 代理监听地址
 
-  # CA certificate for server verification
-  ca_cert: "ca.crt"
+  # 用于服务器验证的 CA 证书
+  ca_cert: "ca.crt"                 # CA 证书文件路径
 """
 
 
 def create_client_package(
-    username: str,
-    secret: str,
-    server_host: str,
-    server_port: int,
-    base_dir: str,
-    output_dir: str
+    username: str,                  # 用户名
+    secret: str,                    # 用户密钥
+    server_host: str,               # 服务器主机名
+    server_port: int,               # 服务器端口
+    base_dir: str,                  # 基础目录路径
+    output_dir: str                 # 输出目录路径
 ) -> str:
     """
-    Create a ZIP package with everything the client needs.
+    创建包含客户端所需所有文件的 ZIP 包。
 
-    Returns:
-        Path to the created ZIP file
+    返回:
+        创建的 ZIP 文件路径
     """
-    # Files to include from base directory
+    # 从基础目录中需要包含的文件列表
     client_files = ['client.py', 'common.py', 'requirements.txt']
 
-    # Check for ca.crt
+    # 检查 ca.crt 证书文件是否存在
     ca_cert_path = os.path.join(base_dir, 'ca.crt')
     has_ca_cert = os.path.exists(ca_cert_path)
 
-    # Create temporary directory for package
+    # 创建临时目录用于打包
     with tempfile.TemporaryDirectory() as tmpdir:
-        pkg_dir = os.path.join(tmpdir, username)
-        os.makedirs(pkg_dir)
+        pkg_dir = os.path.join(tmpdir, username)  # 用户包目录
+        os.makedirs(pkg_dir)                       # 创建目录
 
-        # Copy client files
+        # 复制客户端文件
         for filename in client_files:
-            src = os.path.join(base_dir, filename)
+            src = os.path.join(base_dir, filename)  # 源文件路径
             if os.path.exists(src):
-                shutil.copy(src, pkg_dir)
+                shutil.copy(src, pkg_dir)            # 复制文件到包目录
             else:
-                print(f"Warning: {filename} not found, skipping")
+                print(f"警告: {filename} 未找到，跳过")
 
-        # Copy CA certificate if exists
+        # 如果存在 CA 证书则复制
         if has_ca_cert:
-            shutil.copy(ca_cert_path, pkg_dir)
+            shutil.copy(ca_cert_path, pkg_dir)       # 复制 CA 证书
         else:
-            print("Warning: ca.crt not found - client will not be able to verify server")
+            print("警告: ca.crt 未找到 - 客户端将无法验证服务器")
 
-        # Generate client config
+        # 生成客户端配置文件
         config_content = create_client_config(server_host, server_port, username, secret)
         config_path = os.path.join(pkg_dir, 'config.yaml')
         with open(config_path, 'w') as f:
-            f.write(config_content)
+            f.write(config_content)                   # 写入配置内容
 
-        # Create README for the user
-        readme_content = f"""# SMTP Tunnel Client - {username}
+        # 为用户创建 README 说明文件
+        readme_content = f"""# SMTP 隧道客户端 - {username}
 
-## Quick Start
+## 快速开始
 
-1. Install dependencies:
+1. 安装依赖:
    pip install -r requirements.txt
 
-2. Run the client:
+2. 运行客户端:
    python client.py
 
-3. Configure your browser/apps to use SOCKS5 proxy:
-   Host: 127.0.0.1
-   Port: 1080
+3. 配置浏览器/应用程序使用 SOCKS5 代理:
+   主机: 127.0.0.1
+   端口: 1080
 
-## Files
+## 文件说明
 
-- start.bat      - Windows launcher (double-click to run)
-- start.sh       - Linux/Mac launcher (run with ./start.sh)
-- client.py      - The tunnel client
-- common.py      - Shared library
-- config.yaml    - Your configuration (pre-configured)
-- ca.crt         - Server certificate for verification
-- requirements.txt - Python dependencies
+- start.bat      - Windows 启动器（双击运行）
+- start.sh       - Linux/Mac 启动器（使用 ./start.sh 运行）
+- client.py      - 隧道客户端程序
+- common.py      - 共享库文件
+- config.yaml    - 您的配置文件（已预配置）
+- ca.crt         - 用于验证的服务器证书
+- requirements.txt - Python 依赖列表
 
-## Test Connection
+## 测试连接
 
 curl -x socks5h://127.0.0.1:1080 https://ifconfig.me
 
-## Easy Start
+## 简易启动
 
-Windows: Double-click start.bat
-Linux/Mac: Run ./start.sh
+Windows: 双击 start.bat
+Linux/Mac: 运行 ./start.sh
 """
         readme_path = os.path.join(pkg_dir, 'README.txt')
         with open(readme_path, 'w') as f:
-            f.write(readme_content)
+            f.write(readme_content)                   # 写入 README 内容
 
-        # Create Windows launcher script (start.bat)
+        # 创建 Windows 启动脚本（start.bat）
         bat_content = f'''@echo off
 chcp 65001 >nul 2>&1
-title SMTP Tunnel - {username}
+title SMTP 隧道 - {username}
 
 echo.
 echo  ╔═══════════════════════════════════════════════════════════╗
@@ -148,23 +148,23 @@ echo  ║   ╚════██║██║╚██╔╝██║   ██�
 echo  ║   ███████║██║ ╚═╝ ██║   ██║   ██║                         ║
 echo  ║   ╚══════╝╚═╝     ╚═╝   ╚═╝   ╚═╝                         ║
 echo  ║                                                           ║
-echo  ║   SMTP Tunnel Proxy Client                                ║
-echo  ║   User: {username:50}║
+echo  ║   SMTP 隧道代理客户端                                      ║
+echo  ║   用户: {username:50}║
 echo  ║                                                           ║
 echo  ╚═══════════════════════════════════════════════════════════╝
 echo.
 
-:: Check for Python
+:: 检查 Python 是否安装
 where python >nul 2>&1
 if %errorlevel% neq 0 (
     where python3 >nul 2>&1
     if %errorlevel% neq 0 (
-        echo [ERROR] Python not found!
+        echo [错误] 未找到 Python！
         echo.
-        echo Please install Python 3.8+ from:
+        echo 请从以下地址安装 Python 3.8+:
         echo   https://www.python.org/downloads/
         echo.
-        echo Make sure to check "Add Python to PATH" during installation.
+        echo 安装时请确保勾选"Add Python to PATH"选项。
         echo.
         pause
         exit /b 1
@@ -174,55 +174,55 @@ if %errorlevel% neq 0 (
     set PYTHON=python
 )
 
-echo [INFO] Found Python: %PYTHON%
+echo [信息] 找到 Python: %PYTHON%
 
-:: Check/install requirements
-echo [INFO] Checking dependencies...
+:: 检查/安装依赖
+echo [信息] 检查依赖项...
 %PYTHON% -c "import yaml" >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [INFO] Installing dependencies...
+    echo [信息] 正在安装依赖项...
     %PYTHON% -m pip install -r requirements.txt --quiet
     if %errorlevel% neq 0 (
-        echo [ERROR] Failed to install dependencies
+        echo [错误] 依赖项安装失败
         pause
         exit /b 1
     )
-    echo [INFO] Dependencies installed
+    echo [信息] 依赖项安装完成
 )
 
 echo.
-echo [INFO] Starting SMTP Tunnel...
-echo [INFO] SOCKS5 proxy will be available at 127.0.0.1:1080
+echo [信息] 正在启动 SMTP 隧道...
+echo [信息] SOCKS5 代理将在 127.0.0.1:1080 上可用
 echo.
-echo Press Ctrl+C to stop
+echo 按 Ctrl+C 停止
 echo ─────────────────────────────────────────────────────────────
 echo.
 
 %PYTHON% client.py
 
 echo.
-echo Connection closed.
-echo Press any key to exit...
+echo 连接已关闭。
+echo 按任意键退出...
 pause >nul
 '''
         bat_path = os.path.join(pkg_dir, 'start.bat')
         with open(bat_path, 'w', newline='\r\n') as f:
-            f.write(bat_content)
+            f.write(bat_content)                       # 写入 Windows 批处理脚本
 
-        # Create Linux/Mac launcher script (start.sh)
+        # 创建 Linux/Mac 启动脚本（start.sh）
         sh_content = f'''#!/bin/bash
 #
-# SMTP Tunnel Client Launcher
-# User: {username}
+# SMTP 隧道客户端启动器
+# 用户: {username}
 #
 
-# Colors
-RED='\\033[0;31m'
-GREEN='\\033[0;32m'
-YELLOW='\\033[1;33m'
-BLUE='\\033[0;34m'
-CYAN='\\033[0;36m'
-NC='\\033[0m'
+# 颜色定义
+RED='\\033[0;31m'      # 红色
+GREEN='\\033[0;32m'    # 绿色
+YELLOW='\\033[1;33m'   # 黄色
+BLUE='\\033[0;34m'     # 蓝色
+CYAN='\\033[0;36m'     # 青色
+NC='\\033[0m'          # 无颜色
 
 clear
 echo ""
@@ -236,118 +236,118 @@ echo "  ║   ╚════██║██║╚██╔╝██║   ██
 echo "  ║   ███████║██║ ╚═╝ ██║   ██║   ██║                         ║"
 echo "  ║   ╚══════╝╚═╝     ╚═╝   ╚═╝   ╚═╝                         ║"
 echo "  ║                                                           ║"
-echo "  ║   SMTP Tunnel Proxy Client                                ║"
-echo "  ║   User: {username:50}║"
+echo "  ║   SMTP 隧道代理客户端                                      ║"
+echo "  ║   用户: {username:50}║"
 echo "  ║                                                           ║"
 echo "  ╚═══════════════════════════════════════════════════════════╝"
 echo -e "${{NC}}"
 echo ""
 
-# Find Python
+# 查找 Python
 if command -v python3 &> /dev/null; then
     PYTHON=python3
 elif command -v python &> /dev/null; then
     PYTHON=python
 else
-    echo -e "${{RED}}[ERROR]${{NC}} Python not found!"
+    echo -e "${{RED}}[错误]${{NC}} 未找到 Python！"
     echo ""
-    echo "Please install Python 3.8+:"
+    echo "请安装 Python 3.8+:"
     echo "  Ubuntu/Debian: sudo apt install python3 python3-pip"
     echo "  macOS: brew install python3"
-    echo "  Or download from: https://www.python.org/downloads/"
+    echo "  或从以下地址下载: https://www.python.org/downloads/"
     echo ""
     exit 1
 fi
 
-echo -e "${{GREEN}}[INFO]${{NC}} Found Python: $PYTHON"
+echo -e "${{GREEN}}[信息]${{NC}} 找到 Python: $PYTHON"
 
-# Check/install requirements
-echo -e "${{GREEN}}[INFO]${{NC}} Checking dependencies..."
+# 检查/安装依赖
+echo -e "${{GREEN}}[信息]${{NC}} 检查依赖项..."
 if ! $PYTHON -c "import yaml" &> /dev/null; then
-    echo -e "${{YELLOW}}[INFO]${{NC}} Installing dependencies..."
+    echo -e "${{YELLOW}}[信息]${{NC}} 正在安装依赖项..."
     $PYTHON -m pip install -r requirements.txt --quiet
     if [ $? -ne 0 ]; then
-        echo -e "${{RED}}[ERROR]${{NC}} Failed to install dependencies"
-        echo "Try running: $PYTHON -m pip install -r requirements.txt"
+        echo -e "${{RED}}[错误]${{NC}} 依赖项安装失败"
+        echo "请尝试运行: $PYTHON -m pip install -r requirements.txt"
         exit 1
     fi
-    echo -e "${{GREEN}}[INFO]${{NC}} Dependencies installed"
+    echo -e "${{GREEN}}[信息]${{NC}} 依赖项安装完成"
 fi
 
 echo ""
-echo -e "${{GREEN}}[INFO]${{NC}} Starting SMTP Tunnel..."
-echo -e "${{GREEN}}[INFO]${{NC}} SOCKS5 proxy will be available at 127.0.0.1:1080"
+echo -e "${{GREEN}}[信息]${{NC}} 正在启动 SMTP 隧道..."
+echo -e "${{GREEN}}[信息]${{NC}} SOCKS5 代理将在 127.0.0.1:1080 上可用"
 echo ""
-echo -e "Press ${{YELLOW}}Ctrl+C${{NC}} to stop"
+echo -e "按 ${{YELLOW}}Ctrl+C${{NC}} 停止"
 echo "─────────────────────────────────────────────────────────────"
 echo ""
 
 $PYTHON client.py
 
 echo ""
-echo -e "${{YELLOW}}Connection closed.${{NC}}"
+echo -e "${{YELLOW}}连接已关闭。${{NC}}"
 '''
         sh_path = os.path.join(pkg_dir, 'start.sh')
         with open(sh_path, 'w') as f:
-            f.write(sh_content)
-        os.chmod(sh_path, 0o755)
+            f.write(sh_content)                         # 写入 Shell 脚本
+        os.chmod(sh_path, 0o755)                        # 设置可执行权限
 
-        # Create ZIP file
+        # 创建 ZIP 文件
         zip_filename = f"{username}.zip"
         zip_path = os.path.abspath(os.path.join(output_dir, zip_filename))
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(pkg_dir):
                 for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, tmpdir)
-                    zipf.write(file_path, arcname)
+                    file_path = os.path.join(root, file)       # 文件完整路径
+                    arcname = os.path.relpath(file_path, tmpdir)  # ZIP 内的相对路径
+                    zipf.write(file_path, arcname)             # 添加到 ZIP
 
         return zip_path
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Add a new user to SMTP Tunnel',
+        description='向 SMTP 隧道添加新用户',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  %(prog)s alice                    # Add user 'alice' with auto-generated secret
-  %(prog)s bob --secret mysecret    # Add user 'bob' with specific secret
+示例:
+  %(prog)s alice                    # 添加用户 'alice' 并自动生成密钥
+  %(prog)s bob --secret mysecret    # 添加用户 'bob' 并指定密钥
   %(prog)s carol --whitelist 1.2.3.4 --whitelist 10.0.0.0/8
-  %(prog)s dave --no-logging        # Add user without logging
+  %(prog)s dave --no-logging        # 添加用户但不记录日志
 """
     )
-    parser.add_argument('username', help='Username to add')
-    parser.add_argument('--secret', '-s', default=None, help='Secret (auto-generated if not provided)')
-    parser.add_argument('--whitelist', '-w', action='append', default=[], help='IP whitelist (can specify multiple)')
-    parser.add_argument('--no-logging', action='store_true', help='Disable logging for this user')
-    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='Users file (default: /etc/smtp-tunnel/users.yaml)')
-    parser.add_argument('--config', '-c', default='/etc/smtp-tunnel/config.yaml', help='Server config file (default: /etc/smtp-tunnel/config.yaml)')
-    parser.add_argument('--output-dir', '-o', default='.', help='Output directory for ZIP file (default: current)')
-    parser.add_argument('--no-package', action='store_true', help='Do not generate client ZIP package')
+    parser.add_argument('username', help='要添加的用户名')
+    parser.add_argument('--secret', '-s', default=None, help='密钥（未提供则自动生成）')
+    parser.add_argument('--whitelist', '-w', action='append', default=[], help='IP 白名单（可指定多个）')
+    parser.add_argument('--no-logging', action='store_true', help='为此用户禁用日志记录')
+    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='用户文件（默认: /etc/smtp-tunnel/users.yaml）')
+    parser.add_argument('--config', '-c', default='/etc/smtp-tunnel/config.yaml', help='服务器配置文件（默认: /etc/smtp-tunnel/config.yaml）')
+    parser.add_argument('--output-dir', '-o', default='.', help='ZIP 文件输出目录（默认: 当前目录）')
+    parser.add_argument('--no-package', action='store_true', help='不生成客户端 ZIP 包')
 
     args = parser.parse_args()
 
-    # Get base directory (where this script is located)
+    # 获取基础目录（此脚本所在的位置）
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Load existing users
+    # 加载现有用户
     users_file = args.users_file
     if not os.path.isabs(users_file):
-        users_file = os.path.join(base_dir, users_file)
+        users_file = os.path.join(base_dir, users_file)  # 转换为绝对路径
 
-    users = load_users(users_file)
+    users = load_users(users_file)  # 加载用户数据
 
-    # Check if user already exists
+    # 检查用户是否已存在
     if args.username in users:
-        print(f"Error: User '{args.username}' already exists")
+        print(f"错误: 用户 '{args.username}' 已存在")
         return 1
 
-    # Generate secret if not provided
+    # 如果未提供密钥则生成
     secret = args.secret or generate_secret()
 
-    # Create user config
+    # 创建用户配置
     user = UserConfig(
         username=args.username,
         secret=secret,
@@ -355,33 +355,33 @@ Examples:
         logging=not args.no_logging
     )
 
-    # Add user
+    # 添加用户
     users[args.username] = user
 
-    # Save users file
+    # 保存用户文件
     save_users(users_file, users)
-    print(f"User '{args.username}' added to {users_file}")
+    print(f"用户 '{args.username}' 已添加到 {users_file}")
 
-    # Generate client package
+    # 生成客户端包
     if not args.no_package:
-        # Load server config to get hostname and port
+        # 加载服务器配置以获取主机名和端口
         config_file = args.config
         if not os.path.isabs(config_file):
-            config_file = os.path.join(base_dir, config_file)
+            config_file = os.path.join(base_dir, config_file)  # 转换为绝对路径
 
         try:
-            config_data = load_config(config_file)
+            config_data = load_config(config_file)            # 加载配置
             server_conf = config_data.get('server', {})
             server_host = server_conf.get('hostname', 'localhost')
             server_port = server_conf.get('port', 587)
         except FileNotFoundError:
-            print(f"Warning: Config file {config_file} not found, using defaults")
+            print(f"警告: 配置文件 {config_file} 未找到，使用默认值")
             server_host = 'localhost'
             server_port = 587
 
         output_dir = args.output_dir
         if not os.path.isabs(output_dir):
-            output_dir = os.path.join(os.getcwd(), output_dir)
+            output_dir = os.path.join(os.getcwd(), output_dir)  # 转换为绝对路径
 
         zip_path = create_client_package(
             username=args.username,
@@ -392,10 +392,10 @@ Examples:
             output_dir=output_dir
         )
 
-        print(f"Client package created: {zip_path}")
+        print(f"客户端包已创建: {zip_path}")
         print()
-        print("Send this ZIP file to the user. They just need to:")
-        print("  1. Extract the ZIP")
+        print("将此 ZIP 文件发送给用户。他们只需要:")
+        print("  1. 解压 ZIP 文件")
         print("  2. pip install -r requirements.txt")
         print("  3. python client.py")
 

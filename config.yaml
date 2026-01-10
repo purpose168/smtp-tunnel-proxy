@@ -1,70 +1,70 @@
-# SMTP Tunnel Configuration
-# Copy this file and customize for your setup
+# SMTP 隧道配置
+# 复制此文件并根据您的设置进行自定义
 
 # ============================================================================
-# Server Configuration (for server.py)
+# 服务器配置（用于 server.py）
 # ============================================================================
 server:
-  # Listen address (0.0.0.0 for all interfaces)
+  # 监听地址（0.0.0.0 表示所有网络接口）
   host: "0.0.0.0"
 
-  # SMTP submission port (587 is standard)
+  # SMTP 提交端口（587 是标准端口）
   port: 587
 
-  # Hostname to advertise in SMTP greeting
-  # Use a realistic hostname that matches your server's DNS
+  # 在 SMTP 问候中显示的主机名
+  # 使用与服务器 DNS 匹配的真实主机名
   hostname: "mail.example.com"
 
-  # TLS certificate and key files
-  # Generate with: python generate_certs.py --hostname mail.example.com
+  # TLS 证书和密钥文件
+  # 使用以下命令生成: python generate_certs.py --hostname mail.example.com
   cert_file: "server.crt"
   key_file: "server.key"
 
-  # Users configuration file
-  # Contains user secrets, IP whitelists, and logging settings
+  # 用户配置文件
+  # 包含用户密钥、IP 白名单和日志设置
   users_file: "users.yaml"
 
-  # Global logging setting (can be overridden per-user)
+  # 全局日志设置（可以按用户覆盖）
   log_users: true
 
 # ============================================================================
-# Client Configuration (for client.py)
-# This section is used when generating client packages
+# 客户端配置（用于 client.py）
+# 此部分在生成客户端包时使用
 # ============================================================================
 client:
-  # Tunnel server domain name (FQDN required for certificate verification)
-  # Use a domain name, not an IP address - see README for free DNS options
+  # 隧道服务器域名（证书验证需要 FQDN）
+  # 使用域名而不是 IP 地址 - 参阅 README 了解免费 DNS 选项
   server_host: "mail.example.com"
 
-  # Tunnel server port
+  # 隧道服务器端口
   server_port: 587
 
-  # Local SOCKS5 proxy port
+  # 本地 SOCKS5 代理端口
   socks_port: 1080
 
-  # Local SOCKS5 bind address (127.0.0.1 = localhost only)
+  # 本地 SOCKS5 绑定地址（127.0.0.1 = 仅本地主机）
   socks_host: "127.0.0.1"
 
-  # Username and secret are set per-user in generated client configs
-  # username: "set-by-adduser"
-  # secret: "set-by-adduser"
+  # 用户名和密钥在生成的客户端配置中按用户设置
+  # username: "由 adduser 设置"
+  # secret: "由 adduser 设置"
 
-  # CA certificate for server verification (RECOMMENDED for security)
+  # 用于服务器验证的 CA 证书（出于安全考虑推荐使用）
   ca_cert: "ca.crt"
 
 # ============================================================================
-# Stealth Configuration (DPI Evasion) - Optional
+# 隐蔽配置（DPI 规避）- 可选
 # ============================================================================
 stealth:
-  # Random delay range between messages (milliseconds)
+  # 消息之间的随机延迟范围（毫秒）
   min_delay_ms: 50
   max_delay_ms: 500
 
-  # Pad messages to these sizes (bytes)
+  # 将消息填充到这些大小（字节）
   pad_to_sizes:
     - 4096
     - 8192
     - 16384
 
-  # Probability of sending dummy (empty) messages
+  # 发送虚拟（空）消息的概率
   dummy_message_probability: 0.1

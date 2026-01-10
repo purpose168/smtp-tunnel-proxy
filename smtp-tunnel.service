@@ -1,5 +1,5 @@
 [Unit]
-Description=SMTP Tunnel Server
+Description=SMTP 隧道服务器
 Documentation=https://github.com/user/smtp-tunnel
 After=network.target
 
@@ -13,11 +13,11 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# Security hardening (optional)
-# NoNewPrivileges=true
-# ProtectSystem=strict
-# ProtectHome=true
-# ReadWritePaths=/etc/smtp-tunnel
+# 安全加固（可选）
+# NoNewPrivileges=true      # 禁止获取新权限
+# ProtectSystem=strict      # 严格保护系统目录
+# ProtectHome=true          # 保护用户主目录
+# ReadWritePaths=/etc/smtp-tunnel  # 允许写入的路径
 
 [Install]
 WantedBy=multi-user.target
