@@ -98,6 +98,9 @@ class TunnelClient:
         self.connect_results: Dict[int, bool] = {}
 
         self.write_lock = asyncio.Lock()
+        
+        # 任务引用
+        self.receiver_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> bool:
         """连接并执行 SMTP 握手，然后切换到二进制模式。"""
@@ -220,7 +223,7 @@ class TunnelClient:
 
     async def start_receiver(self):
         """启动后台任务以从服务器接收帧。"""
-        asyncio.create_task(self._receiver_loop())
+        self.receiver_task = asyncio.create_task(self._receiver_loop())
 
     async def _receiver_loop(self):
         """接收并分发来自服务器的帧。"""
@@ -362,6 +365,15 @@ class TunnelClient:
         self.channels.clear()
         self.connect_events.clear()
         self.connect_results.clear()
+        
+        # 取消接收器任务
+        if self.receiver_task:
+            self.receiver_task.cancel()
+            try:
+                await self.receiver_task
+            except asyncio.CancelledError:
+                pass
+            self.receiver_task = None
 
 
 # ============================================================================
@@ -506,9 +518,9 @@ async def run_client(config: ClientConfig, ca_cert: str):
 
         # 已连接 - 重置延迟
         current_delay = reconnect_delay
-
         # 在后台启动接收器
         receiver_task = asyncio.create_task(tunnel._receiver_loop())
+        tunnel.receiver_task = receiver_task
 
         # 启动 SOCKS 服务器
         socks = SOCKS5Server(tunnel, config.socks_host, config.socks_port)
@@ -551,11 +563,14 @@ async def run_client(config: ClientConfig, ca_cert: str):
                 logger.error(f"SOCKS 服务器错误: {e}")
         finally:
             await tunnel.disconnect()
-            receiver_task.cancel()
-            try:
-                await receiver_task
-            except asyncio.CancelledError:
-                pass
+            # 取消接收器任务
+            if tunnel.receiver_task:
+                tunnel.receiver_task.cancel()
+                try:
+                    await tunnel.receiver_task
+                except asyncio.CancelledError:
+                    pass
+                tunnel.receiver_task = None
 
         # 连接丢失后不延迟 - 仅在连接失败时延迟（在循环顶部处理）
 

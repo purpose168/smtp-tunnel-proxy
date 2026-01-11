@@ -65,6 +65,23 @@ FRAME_HEADER_SIZE = 5
 # 通道 - 隧道化的 TCP 连接
 # ============================================================================
 
+# IPv4 地址池 - 用于纯 IPv6 地址的回退
+# 这些是常用服务的 IPv4 地址，当 IPv6 连接失败时使用
+IPv4_FALLBACK_POOL = {
+    # Google 服务
+    'google.com': ['142.250.72.174', '142.250.72.175', '142.250.72.176'],
+    'www.google.com': ['142.250.72.174', '142.250.72.175'],
+    # Cloudflare 服务
+    'cloudflare.com': ['104.16.132.229', '104.16.133.229'],
+    'www.cloudflare.com': ['104.16.132.229', '104.16.133.229'],
+    # Facebook 服务
+    'facebook.com': ['157.240.22.35', '157.240.22.19'],
+    'www.facebook.com': ['157.240.22.35', '157.240.22.19'],
+    # Apple 服务
+    'apple.com': ['17.253.144.10', '17.253.144.11'],
+    'www.apple.com': ['17.253.144.10', '17.253.144.11'],
+}
+
 @dataclass
 class Channel:
     channel_id: int
@@ -73,6 +90,7 @@ class Channel:
     reader: Optional[asyncio.StreamReader] = None
     writer: Optional[asyncio.StreamWriter] = None
     connected: bool = False
+    reader_task: Optional[asyncio.Task] = None  # 添加任务引用
 
 
 # ============================================================================
@@ -105,6 +123,14 @@ class TunnelSession:
         peer = writer.get_extra_info('peername')
         self.client_ip = peer[0] if peer else "unknown"
         self.peer_str = f"{peer[0]}:{peer[1]}" if peer else "unknown"
+
+        # 连接统计
+        self.connect_stats = {
+            'total': 0,
+            'success': 0,
+            'failed': 0,
+            'by_strategy': {}
+        }
 
     def _log(self, level: int, msg: str):
         """记录日志消息，可选包含用户信息。"""
@@ -308,6 +334,7 @@ class TunnelSession:
 
             # 处理IPv6地址格式
             is_ipv6 = ':' in host and '.' not in host
+            original_host = host  # 保存原始主机名/地址
             
             # 修复IPv6地址格式错误
             if is_ipv6:
@@ -333,44 +360,150 @@ class TunnelSession:
             
             logger.info(f"CONNECT ch={channel_id} -> {target_address} (host: {host}, is_ipv6: {is_ipv6})")
 
-            try:
-                if is_ipv6:
-                    logger.debug(f"尝试IPv6连接: {host}:{port} (family=socket.AF_INET6)")
+            # 尝试解析主机的IPv4地址
+            def get_ipv4_addresses(hostname):
+                """获取主机的IPv4地址列表"""
+                import socket
+                ipv4_addresses = []
+                try:
+                    addr_info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
+                    for info in addr_info:
+                        ipv4_address = info[4][0]
+                        if ipv4_address not in ipv4_addresses:
+                            ipv4_addresses.append(ipv4_address)
+                except Exception as e:
+                    logger.debug(f"获取IPv4地址失败: {e}")
+                return ipv4_addresses
+            
+            # 首先检查服务器是否支持IPv6连接
+            def is_ipv6_supported():
+                """检查服务器是否支持IPv6连接"""
+                try:
+                    import socket
+                    # 尝试创建IPv6套接字，这是测试IPv6支持的最基本方法
+                    # 不需要绑定到特定地址，创建套接字本身就可以测试IPv6堆栈是否可用
+                    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+                    sock.close()
+                    return True
+                except OSError as e:
+                    logger.debug(f"IPv6支持测试失败: {e}")
+                    return False
+            
+            ipv6_supported = is_ipv6_supported()
+            logger.debug(f"服务器IPv6支持状态: {ipv6_supported}")
+            
+            # 获取原始主机的IPv4地址列表
+            ipv4_addresses = get_ipv4_addresses(original_host)
+            logger.debug(f"原始主机的IPv4地址列表: {ipv4_addresses}")
+            
+            # 构建连接策略
+            connection_strategies = []
+            
+            # 策略1: 如果是IPv6地址且服务器支持IPv6，尝试IPv6连接
+            if is_ipv6 and ipv6_supported:
+                connection_strategies.append(("IPv6", socket.AF_INET6, host))
+            
+            # 策略2: 如果是域名，尝试自动地址族选择
+            if not is_ipv6:
+                connection_strategies.append(("自动选择", None, host))
+            
+            # 策略3: 对于所有情况，尝试使用解析到的IPv4地址连接
+            for ipv4_addr in ipv4_addresses:
+                connection_strategies.append((f"IPv4 ({ipv4_addr})", socket.AF_INET, ipv4_addr))
+            
+            # 策略4: 对于纯IPv6地址，尝试使用IPv4地址池回退
+            if is_ipv6 and not ipv4_addresses:
+                # 尝试从IPv6地址推断可能的服务
+                for service_name, ipv4_list in IPv4_FALLBACK_POOL.items():
+                    for ipv4_addr in ipv4_list:
+                        connection_strategies.append((f"IPv4地址池 ({service_name})", socket.AF_INET, ipv4_addr))
+            
+            # 策略5: 如果是域名，尝试使用Google公共DNS服务器解析
+            if not is_ipv6:
+                connection_strategies.append(("Google DNS解析", None, host))
+            
+            # 执行连接策略
+            for strategy in connection_strategies:
+                strategy_name = strategy[0]
+                family = strategy[1]
+                target_host = strategy[2]
+                
+                logger.debug(f"尝试连接策略: {strategy_name}, host: {target_host}, family: {family}")
+                
+                try:
+                    connect_kwargs = {}
+                    if family is not None:
+                        connect_kwargs['family'] = family
+                    
+                    # 如果是Google DNS解析策略，我们不需要设置local_addr，让系统自动选择
+                    # 注意：local_addr应该是本地地址，而不是外部DNS服务器地址
+                    
                     reader, writer = await asyncio.wait_for(
-                        asyncio.open_connection(host, port, family=socket.AF_INET6),
-                        timeout=30.0
+                        asyncio.open_connection(target_host, port, **connect_kwargs),
+                        timeout=10.0
                     )
-                    logger.debug(f"IPv6连接成功: {host}:{port}")
-                else:
-                    logger.debug(f"尝试IPv4连接: {host}:{port}")
-                    reader, writer = await asyncio.wait_for(
-                        asyncio.open_connection(host, port),
-                        timeout=30.0
+                    
+                    logger.debug(f"连接策略成功: {strategy_name}, host: {target_host}")
+                    
+                    channel = Channel(
+                        channel_id=channel_id,
+                        host=original_host,
+                        port=port,
+                        reader=reader,
+                        writer=writer,
+                        connected=True
                     )
-                    logger.debug(f"IPv4连接成功: {host}:{port}")
-
-                channel = Channel(
-                    channel_id=channel_id,
-                    host=host,
-                    port=port,
-                    reader=reader,
-                    writer=writer,
-                    connected=True
-                )
-                self.channels[channel_id] = channel
-
-                # 开始从目标读取
-                asyncio.create_task(self._channel_reader(channel))
-
-                # 发送成功
-                await self._send_frame(FRAME_CONNECT_OK, channel_id)
-                logger.info(f"CONNECTED ch={channel_id}")
-
-            except Exception as e:
-                logger.error(f"连接失败: {e} (host: {host}, port: {port}, is_ipv6: {is_ipv6}, family: {socket.AF_INET6 if is_ipv6 else socket.AF_INET})")
-                import traceback
-                logger.debug(f"连接失败详情: {traceback.format_exc()}")
-                await self._send_frame(FRAME_CONNECT_FAIL, channel_id, str(e).encode()[:100])
+                    self.channels[channel_id] = channel
+                    
+                    # 开始从目标读取
+                    channel.reader_task = asyncio.create_task(self._channel_reader(channel))
+                    
+                    # 发送成功
+                    await self._send_frame(FRAME_CONNECT_OK, channel_id)
+                    logger.info(f"CONNECTED ch={channel_id} (策略: {strategy_name})")
+                    
+                    # 更新连接统计
+                    self.connect_stats['total'] += 1
+                    self.connect_stats['success'] += 1
+                    if strategy_name not in self.connect_stats['by_strategy']:
+                        self.connect_stats['by_strategy'][strategy_name] = {'success': 0, 'failed': 0}
+                    self.connect_stats['by_strategy'][strategy_name]['success'] += 1
+                    
+                    return
+                    
+                except ConnectionRefusedError as e:
+                    logger.error(f"连接被拒绝: {strategy_name}, host: {target_host}, 错误: {e}")
+                    continue
+                except TimeoutError as e:
+                    logger.error(f"连接超时: {strategy_name}, host: {target_host}, 错误: {e}")
+                    continue
+                except OSError as e:
+                    if e.errno == 101:  # Network is unreachable
+                        logger.error(f"网络不可达: {strategy_name}, host: {target_host}, 错误: {e}")
+                        continue
+                    elif e.errno == -9:  # Address family not supported
+                        logger.error(f"地址族不支持: {strategy_name}, host: {target_host}, 错误: {e}")
+                        continue
+                    else:
+                        logger.error(f"连接错误: {strategy_name}, host: {target_host}, 错误: {e}")
+                        continue
+                except Exception as e:
+                    logger.error(f"未知错误: {strategy_name}, host: {target_host}, 错误: {e}")
+                    import traceback
+                    logger.debug(f"错误详情: {traceback.format_exc()}")
+                    continue
+            
+            # 如果所有策略都失败，发送连接失败
+            logger.error(f"所有连接策略均失败: {original_host}:{port}")
+            await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b"Network is unreachable")
+            
+            # 更新连接统计
+            self.connect_stats['total'] += 1
+            self.connect_stats['failed'] += 1
+            for strategy_name in [s[0] for s in connection_strategies]:
+                if strategy_name not in self.connect_stats['by_strategy']:
+                    self.connect_stats['by_strategy'][strategy_name] = {'success': 0, 'failed': 0}
+                self.connect_stats['by_strategy'][strategy_name]['failed'] += 1
 
         except Exception as e:
             logger.error(f"处理连接错误: {e}")
@@ -432,6 +565,14 @@ class TunnelSession:
             return
         channel.connected = False
 
+        # 取消读取任务
+        if hasattr(channel, 'reader_task') and channel.reader_task:
+            channel.reader_task.cancel()
+            try:
+                await channel.reader_task
+            except asyncio.CancelledError:
+                pass
+
         if channel.writer:
             try:
                 channel.writer.close()
@@ -450,6 +591,18 @@ class TunnelSession:
             await self.writer.wait_closed()
         except:
             pass
+        
+        # 输出连接统计信息
+        if self.connect_stats['total'] > 0:
+            success_rate = (self.connect_stats['success'] / self.connect_stats['total']) * 100
+            logger.info(f"连接统计: 总数={self.connect_stats['total']}, 成功={self.connect_stats['success']}, 失败={self.connect_stats['failed']}, 成功率={success_rate:.2f}%")
+            
+            # 输出各策略的连接统计
+            for strategy_name, stats in self.connect_stats['by_strategy'].items():
+                strategy_total = stats['success'] + stats['failed']
+                if strategy_total > 0:
+                    strategy_success_rate = (stats['success'] / strategy_total) * 100
+                    logger.info(f"策略 {strategy_name}: 成功={stats['success']}, 失败={stats['failed']}, 成功率={strategy_success_rate:.2f}%")
 
 
 # ============================================================================
