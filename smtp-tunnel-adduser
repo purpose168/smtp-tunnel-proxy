@@ -14,11 +14,64 @@ import secrets   # 安全随机数生成库
 import zipfile   # ZIP 文件操作库
 import tempfile  # 临时文件/目录创建库
 import shutil    # 高级文件操作库
+import pathlib   # 路径处理库
 
 # 将当前目录添加到导入路径，以便导入本地模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from common import load_users, save_users, load_config, UserConfig  # 导入通用函数和用户配置类
+
+
+def find_project_root() -> str:
+    """查找项目根目录，尝试多个可能的位置。"""
+    possible_roots = [
+        os.path.dirname(os.path.abspath(__file__)),  # 当前脚本所在目录
+        '/opt/smtp-tunnel',                          # 标准安装目录
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'),  # 上级目录
+    ]
+    
+    # 检查常见的项目文件
+    project_files = ['server.py', 'client.py', 'common.py', 'requirements.txt']
+    
+    for root in possible_roots:
+        # 检查是否包含所有必需的文件
+        found_files = 0
+        for project_file in project_files:
+            if os.path.exists(os.path.join(root, project_file)):
+                found_files += 1
+        
+        # 如果找到大部分文件，认为这是项目根目录
+        if found_files >= 3:
+            return root
+    
+    # 如果都找不到，返回当前脚本目录
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def find_required_files(base_dir: str) -> dict:
+    """查找必需的文件，返回找到的文件路径字典。"""
+    required_files = {
+        'client.py': 'client.py',
+        'common.py': 'common.py', 
+        'requirements.txt': 'requirements.txt',
+        'ca.crt': 'ca.crt'
+    }
+    
+    found_files = {}
+    
+    for key, filename in required_files.items():
+        file_path = os.path.join(base_dir, filename)
+        if os.path.exists(file_path):
+            found_files[key] = file_path
+        else:
+            # 尝试在上级目录中查找
+            parent_path = os.path.join(base_dir, '..', filename)
+            if os.path.exists(parent_path):
+                found_files[key] = parent_path
+            else:
+                found_files[key] = None
+    
+    return found_files
 
 
 def generate_secret() -> str:
@@ -63,12 +116,14 @@ def create_client_package(
     返回:
         创建的 ZIP 文件路径
     """
-    # 从基础目录中需要包含的文件列表
+    # 查找必需的文件
+    files = find_required_files(base_dir)
+    
+    # 客户端文件列表
     client_files = ['client.py', 'common.py', 'requirements.txt']
-
+    
     # 检查 ca.crt 证书文件是否存在
-    ca_cert_path = os.path.join(base_dir, 'ca.crt')
-    has_ca_cert = os.path.exists(ca_cert_path)
+    has_ca_cert = files['ca.crt'] is not None
 
     # 创建临时目录用于打包
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -77,15 +132,14 @@ def create_client_package(
 
         # 复制客户端文件
         for filename in client_files:
-            src = os.path.join(base_dir, filename)  # 源文件路径
-            if os.path.exists(src):
-                shutil.copy(src, pkg_dir)            # 复制文件到包目录
+            if files[filename] and os.path.exists(files[filename]):
+                shutil.copy(files[filename], pkg_dir)            # 复制文件到包目录
             else:
                 print(f"警告: {filename} 未找到，跳过")
 
         # 如果存在 CA 证书则复制
         if has_ca_cert:
-            shutil.copy(ca_cert_path, pkg_dir)       # 复制 CA 证书
+            shutil.copy(files['ca.crt'], pkg_dir)       # 复制 CA 证书
         else:
             print("警告: ca.crt 未找到 - 客户端将无法验证服务器")
 
@@ -235,7 +289,7 @@ echo "  ║   ███████╗██╔████╔██║   ██
 echo "  ║   ╚════██║██║╚██╔╝██║   ██║   ██╔═══╝                     ║"
 echo "  ║   ███████║██║ ╚═╝ ██║   ██║   ██║                         ║"
 echo "  ║   ╚══════╝╚═╝     ╚═╝   ╚═╝   ╚═╝                         ║"
-echo "  ║                                                           ║"
+echo "  ║                                                           ║
 echo "  ║   SMTP 隧道代理客户端                                      ║"
 echo "  ║   用户: {username:50}║"
 echo "  ║                                                           ║"
@@ -290,7 +344,7 @@ echo -e "${{YELLOW}}连接已关闭。${{NC}}"
         sh_path = os.path.join(pkg_dir, 'start.sh')
         with open(sh_path, 'w') as f:
             f.write(sh_content)                         # 写入 Shell 脚本
-        os.chmod(sh_path, 0o755)                        # 设置可执行权限
+        os.chmod(sh_path, 0o755)                      # 设置可执行权限
 
         # 创建 ZIP 文件
         zip_filename = f"{username}.zip"
@@ -329,8 +383,8 @@ def main():
 
     args = parser.parse_args()
 
-    # 获取基础目录（此脚本所在的位置）
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # 获取基础目录，查找项目文件
+    base_dir = find_project_root()
 
     # 加载现有用户
     users_file = args.users_file
