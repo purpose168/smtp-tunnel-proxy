@@ -1,0 +1,95 @@
+# Docker 构建忽略文件
+# 减小构建上下文大小，加快构建速度
+
+# Git 相关
+.git
+.gitignore
+.gitattributes
+
+# 文档
+README.md
+TECHNICAL.md
+本地化安装手册.md
+Docker部署文档.md
+*.md
+
+# 测试和临时文件
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.eggs
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.log
+
+# IDE 和编辑器
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker 相关
+docker-compose.override.yml
+.dockerignore
+
+# 示例和模板
+*.example
+*.template
+*.bak
+
+# 临时文件
+tmp
+temp
+*.tmp
+
+# 操作系统文件
+Thumbs.db
+.DS_Store
+
+# 备份文件
+*.backup
+*.old
+
+# 本地配置
+.env
+.env.local
+.env.*.local
+
+# 证书和密钥（应该通过卷挂载）
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+
+# 用户数据（运行时生成的目录和文件）
+config/
+data/
+logs/
+
+# 但保留模板文件
+!config.yaml
+!users.yaml
+
+# ZIP 包
+*.zip
+
+# 其他
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z

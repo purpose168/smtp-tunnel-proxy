@@ -3,7 +3,7 @@
 # SMTP 隧道代理 - 服务器安装脚本
 #
 # 一行命令安装:
-#   curl -sSL https://raw.githubusercontent.com/x011/smtp-tunnel-proxy/main/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main/install.sh | sudo bash
 #
 # 版本: 1.3.0
 
@@ -16,7 +16,7 @@ CYAN='\033[0;36m'     # 青色 - 提问
 NC='\033[0m'          # 无颜色
 
 # GitHub 原始文件 URL 基础地址
-GITHUB_RAW="https://raw.githubusercontent.com/x011/smtp-tunnel-proxy/main"
+GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 
 # 安装目录
 INSTALL_DIR="/opt/smtp-tunnel"      # 程序安装目录

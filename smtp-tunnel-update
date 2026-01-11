@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'   # 黄色
 NC='\033[0m'          # 无颜色
 
 # GitHub 原始文件 URL
-GITHUB_RAW="https://raw.githubusercontent.com/x011/smtp-tunnel-proxy/main"
+GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 
 # 安装目录
 INSTALL_DIR="/opt/smtp-tunnel"

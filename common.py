@@ -8,6 +8,10 @@ SMTP 隧道 - 通用协议和工具
 import struct
 import asyncio
 import random
+import logging
+
+# 设置日志记录器
+logger = logging.getLogger(__name__)
 import hashlib
 import hmac
 import os
@@ -588,3 +592,169 @@ Content-Disposition: attachment; filename="{filename}"
 
         # 转换为 CRLF 行尾
         message = message.replace('\n', '\r\n')
+
+
+# ============================================================================
+# 配置管理
+# ============================================================================
+
+import yaml
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
+
+
+@dataclass
+class ServerConfig:
+    """服务器配置数据类。"""
+    host: str = "0.0.0.0"
+    port: int = 587
+    hostname: str = "mail.example.com"
+    cert_file: str = "server.crt"
+    key_file: str = "server.key"
+    users_file: str = "users.yaml"
+    log_users: bool = True
+
+
+@dataclass
+class UserConfig:
+    """用户配置数据类。"""
+    username: str
+    secret: str
+    whitelist: List[str] = None
+    logging: bool = True
+
+    def __post_init__(self):
+        if self.whitelist is None:
+            self.whitelist = []
+
+
+@dataclass
+class ClientConfig:
+    """客户端配置数据类。"""
+    server_host: str
+    server_port: int = 587
+    socks_port: int = 1080
+    socks_host: str = "127.0.0.1"
+    username: str = None
+    secret: str = None
+    ca_cert: str = None
+
+
+class IPWhitelist:
+    """IP 白名单管理类。"""
+    
+    def __init__(self, whitelist: List[str] = None):
+        self.whitelist = whitelist or []
+    
+    def is_allowed(self, ip: str) -> bool:
+        """检查 IP 是否在白名单中。"""
+        if not self.whitelist:
+            return True
+        
+        for allowed_ip in self.whitelist:
+            if self._match_ip(ip, allowed_ip):
+                return True
+        return False
+    
+    def _match_ip(self, ip: str, pattern: str) -> bool:
+        """检查 IP 是否匹配模式。"""
+        # 精确匹配
+        if ip == pattern:
+            return True
+        
+        # CIDR 匹配
+        if '/' in pattern:
+            try:
+                from ipaddress import ip_network, ip_address
+                network = ip_network(pattern, strict=False)
+                return ip_address(ip) in network
+            except ImportError:
+                # 如果没有 ipaddress 模块，只做简单匹配
+                pass
+        
+        return False
+
+
+def load_config(config_file: str) -> Dict[str, Any]:
+    """加载配置文件。"""
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        return {}
+    except yaml.YAMLError as e:
+        logger.warning(f"配置文件格式错误: {e}")
+        return {}
+
+
+def save_config(config_file: str, config_data: Dict[str, Any]) -> bool:
+    """保存配置文件。"""
+    try:
+        with open(config_file, 'w', encoding='utf-8') as f:
+            yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+        return True
+    except Exception as e:
+        logger.error(f"保存配置文件失败: {e}")
+        return False
+
+
+def load_users(users_file: str) -> Dict[str, Union[UserConfig, str]]:
+    """加载用户配置。"""
+    try:
+        with open(users_file, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        
+        if not data or 'users' not in data or data['users'] is None:
+            return {}
+        
+        users = {}
+        for username, user_data in data['users'].items():
+            if isinstance(user_data, str):
+                # 简化格式：只有密钥
+                users[username] = user_data
+            elif isinstance(user_data, dict):
+                # 完整格式：包含配置
+                whitelist = user_data.get('whitelist', [])
+                logging = user_data.get('logging', True)
+                secret = user_data.get('secret', '')
+                users[username] = UserConfig(
+                    username=username,
+                    secret=secret,
+                    whitelist=whitelist,
+                    logging=logging
+                )
+        
+        return users
+    except FileNotFoundError:
+        return {}
+    except yaml.YAMLError as e:
+        logger.warning(f"用户配置文件格式错误: {e}")
+        return {}
+    except Exception as e:
+        logger.warning(f"加载用户配置失败: {e}")
+        return {}
+
+
+def save_users(users_file: str, users: Dict[str, Union[UserConfig, str]]) -> bool:
+    """保存用户配置。"""
+    try:
+        data = {'users': {}}
+        
+        for username, user_data in users.items():
+            if isinstance(user_data, str):
+                # 简化格式
+                data['users'][username] = user_data
+            elif isinstance(user_data, UserConfig):
+                # 完整格式
+                data['users'][username] = {
+                    'secret': user_data.secret,
+                    'whitelist': user_data.whitelist,
+                    'logging': user_data.logging
+                }
+        
+        with open(users_file, 'w', encoding='utf-8') as f:
+            yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+        return True
+    except Exception as e:
+        logger.error(f"保存用户配置失败: {e}")
+        return False
