@@ -21,6 +21,7 @@ import logging
 import argparse
 import struct
 import os
+import socket
 from typing import Dict, Optional
 from dataclasses import dataclass
 
@@ -310,21 +311,8 @@ class TunnelSession:
                 # 修复IPv6地址格式错误（如双冒号）
                 host = host.replace(':::', '::')  # 处理可能的双冒号错误
                 
-                # 正常处理IPv6地址
-                if host.endswith('::'):
-                    # IPv6地址以::结尾，直接添加端口
-                    target_address = f"{host}{port}"
-                elif '::' in host:
-                    # 包含::的正常IPv6地址
-                    if ':443' in host:
-                        # 已经有端口，保持不变
-                        target_address = host
-                    else:
-                        # 使用方括号包装IPv6地址
-                        target_address = f"[{host}]:{port}"
-                else:
-                    # 其他形式的IPv6地址
-                    target_address = f"[{host}]:{port}"
+                # 使用方括号包装IPv6地址
+                target_address = f"[{host}]:{port}"
             else:
                 # IPv4或域名
                 target_address = f"{host}:{port}"
@@ -332,10 +320,17 @@ class TunnelSession:
             logger.info(f"CONNECT ch={channel_id} -> {target_address}")
 
             try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, port),
-                    timeout=30.0
-                )
+                # 自动检测地址类型，为IPv6地址添加family参数
+                if ':' in host and '.' not in host:  # IPv6地址
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(host, port, family=socket.AF_INET6),
+                        timeout=30.0
+                    )
+                else:  # IPv4或域名
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(host, port),
+                        timeout=30.0
+                    )
 
                 channel = Channel(
                     channel_id=channel_id,
