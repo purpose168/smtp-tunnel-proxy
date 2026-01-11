@@ -22,6 +22,7 @@ GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 INSTALL_DIR="/opt/smtp-tunnel"      # 程序安装目录
 CONFIG_DIR="/etc/smtp-tunnel"       # 配置文件目录
 BIN_DIR="/usr/local/bin"            # 可执行文件目录
+VENV_DIR="/opt/smtp-tunnel/venv"    # Python 虚拟环境目录
 
 # 需要下载的 Python 文件
 PYTHON_FILES="server.py client.py common.py generate_certs.py"
@@ -80,17 +81,17 @@ install_dependencies() {
     case $OS in
         ubuntu|debian)
             apt-get update -qq
-            apt-get install -y -qq python3 python3-pip python3-venv curl
+            apt-get install -y -qq python3 python3-pip python3-venv python3-dev curl
             ;;
         centos|rhel|rocky|alma)
             if command -v dnf &> /dev/null; then
-                dnf install -y python3 python3-pip curl
+                dnf install -y python3 python3-pip python3-devel curl
             else
-                yum install -y python3 python3-pip curl
+                yum install -y python3 python3-pip python3-devel curl
             fi
             ;;
         fedora)
-            dnf install -y python3 python3-pip curl
+            dnf install -y python3 python3-pip python3-devel curl
             ;;
         arch|manjaro)
             pacman -Sy --noconfirm python python-pip curl
@@ -104,6 +105,17 @@ install_dependencies() {
     if command -v python3 &> /dev/null; then
         PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
         print_info "Python 版本: $PYTHON_VERSION"
+        
+        # 验证 Python 版本是否满足要求
+        PYTHON_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
+        PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
+        
+        if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]); then
+            print_error "Python 3.8+ 是必需的，当前版本: $PYTHON_VERSION"
+            exit 1
+        fi
+        
+        print_info "Python 版本检查通过: $PYTHON_VERSION"
     else
         print_error "未找到 Python 3。请安装 Python 3.8+"
         exit 1
@@ -176,14 +188,208 @@ install_files() {
     fi
 }
 
+# 检查 Python 虚拟环境
+check_venv() {
+    print_step "检查 Python 虚拟环境..."
+    
+    if [ -n "$VIRTUAL_ENV" ]; then
+        print_info "当前已在虚拟环境中: $VIRTUAL_ENV"
+        return 0
+    else
+        print_info "当前未在虚拟环境中"
+        return 1
+    fi
+}
+
+# 创建 Python 虚拟环境
+create_venv() {
+    print_step "创建 Python 虚拟环境..."
+    
+    # 检查虚拟环境是否已存在
+    if [ -d "$VENV_DIR" ]; then
+        print_warn "虚拟环境已存在: $VENV_DIR"
+        
+        # 询问是否重新创建
+        print_ask "是否重新创建虚拟环境？[y/N]: "
+        read -p "    " RECREATE_VENV < /dev/tty
+        
+        if [ "$RECREATE_VENV" = "y" ] || [ "$RECREATE_VENV" = "Y" ]; then
+            print_info "正在删除现有虚拟环境..."
+            rm -rf "$VENV_DIR"
+        else
+            print_info "保留现有虚拟环境"
+            return 0
+        fi
+    fi
+    
+    # 创建虚拟环境
+    print_info "正在创建虚拟环境: $VENV_DIR"
+    
+    if python3 -m venv "$VENV_DIR"; then
+        print_info "虚拟环境创建成功"
+        return 0
+    else
+        print_error "虚拟环境创建失败"
+        return 1
+    fi
+}
+
+# 激活虚拟环境
+activate_venv() {
+    if [ -f "$VENV_DIR/bin/activate" ]; then
+        print_info "激活虚拟环境: $VENV_DIR"
+        source "$VENV_DIR/bin/activate"
+        print_info "虚拟环境已激活"
+        return 0
+    else
+        print_error "虚拟环境激活脚本不存在: $VENV_DIR/bin/activate"
+        return 1
+    fi
+}
+
+# 验证虚拟环境
+verify_venv() {
+    print_step "验证虚拟环境..."
+    
+    # 检查虚拟环境目录
+    if [ ! -d "$VENV_DIR" ]; then
+        print_error "虚拟环境目录不存在: $VENV_DIR"
+        return 1
+    fi
+    
+    # 检查 Python 解释器
+    if [ ! -f "$VENV_DIR/bin/python" ]; then
+        print_error "虚拟环境 Python 解释器不存在"
+        return 1
+    fi
+    
+    # 检查 pip
+    if [ ! -f "$VENV_DIR/bin/pip" ]; then
+        print_error "虚拟环境 pip 不存在"
+        return 1
+    fi
+    
+    # 获取虚拟环境信息
+    VENV_PYTHON_VERSION=$($VENV_DIR/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+    VENV_PIP_VERSION=$($VENV_DIR/bin/pip --version 2>/dev/null | cut -d' ' -f2)
+    
+    print_info "虚拟环境 Python 版本: $VENV_PYTHON_VERSION"
+    print_info "虚拟环境 pip 版本: $VENV_PIP_VERSION"
+    
+    # 检查是否在虚拟环境中
+    if [ "$VIRTUAL_ENV" = "$VENV_DIR" ]; then
+        print_info "当前已在虚拟环境中"
+    else
+        print_info "虚拟环境路径: $VENV_DIR"
+    fi
+    
+    print_info "虚拟环境验证通过"
+    return 0
+}
+
+# 停用虚拟环境
+deactivate_venv() {
+    if [ -n "$VIRTUAL_ENV" ]; then
+        print_info "停用当前虚拟环境: $VIRTUAL_ENV"
+        deactivate 2>/dev/null || true
+    fi
+}
+
+# 列出虚拟环境信息
+list_venv_info() {
+    echo ""
+    echo -e "${BLUE}Python 虚拟环境信息:${NC}"
+    echo -e "  路径: $VENV_DIR"
+    echo -e "  Python: $VENV_DIR/bin/python"
+    echo -e "  pip: $VENV_DIR/bin/pip"
+    echo -e "  激活脚本: $VENV_DIR/bin/activate"
+    echo ""
+    
+    if [ -f "$VENV_DIR/bin/python" ]; then
+        echo -e "${BLUE}Python 版本信息:${NC}"
+        $VENV_DIR/bin/python --version
+        echo ""
+    fi
+    
+    if [ -f "$VENV_DIR/bin/pip" ]; then
+        echo -e "${BLUE}已安装的包:${NC}"
+        $VENV_DIR/bin/pip list --format=columns | head -20
+        echo ""
+    fi
+}
+
 # 安装 Python 包
 install_python_packages() {
-    print_step "安装 Python 包..."
+    print_step "在虚拟环境中安装 Python 包..."
+    
+    # 检查虚拟环境是否存在
+    if [ ! -d "$VENV_DIR" ]; then
+        print_error "虚拟环境不存在，请先创建虚拟环境"
+        return 1
+    fi
+    
+    # 激活虚拟环境
+    source "$VENV_DIR/bin/activate"
+    
+    # 升级 pip
+    print_info "升级 pip 到最新版本..."
+    $VENV_DIR/bin/pip install --upgrade pip
+    
+    # 安装 Python 包
+    print_info "安装依赖包..."
+    if $VENV_DIR/bin/pip install -r "$INSTALL_DIR/requirements.txt"; then
+        print_info "Python 包安装成功"
+        
+        # 显示已安装的包
+        print_info "已安装的包:"
+        $VENV_DIR/bin/pip list --format=columns | grep -E "(cryptography|pyyaml)" || true
+        return 0
+    else
+        print_error "Python 包安装失败"
+        return 1
+    fi
+}
 
-    pip3 install --root-user-action=ignore -q -r "$INSTALL_DIR/requirements.txt" 2>/dev/null || \
-    pip3 install -q -r "$INSTALL_DIR/requirements.txt"
+# 清理虚拟环境
+clean_venv() {
+    print_step "清理虚拟环境..."
+    
+    if [ -d "$VENV_DIR" ]; then
+        print_info "删除虚拟环境: $VENV_DIR"
+        rm -rf "$VENV_DIR"
+        print_info "虚拟环境已删除"
+    else
+        print_info "虚拟环境不存在，无需清理"
+    fi
+}
 
-    print_info "Python 包已安装"
+# 重新安装虚拟环境
+reinstall_venv() {
+    print_step "重新安装虚拟环境..."
+    
+    # 清理现有虚拟环境
+    clean_venv
+    
+    # 创建新的虚拟环境
+    if create_venv; then
+        # 激活虚拟环境
+        activate_venv
+        
+        # 安装 Python 包
+        install_python_packages
+        
+        # 验证安装
+        if verify_venv; then
+            print_info "虚拟环境重新安装成功"
+            return 0
+        else
+            print_error "虚拟环境重新安装失败"
+            return 1
+        fi
+    else
+        print_error "虚拟环境创建失败"
+        return 1
+    fi
 }
 
 # 创建 systemd 服务
@@ -199,7 +405,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/bin/python3 $INSTALL_DIR/server.py -c $CONFIG_DIR/config.yaml
+ExecStart=$VENV_DIR/bin/python $INSTALL_DIR/server.py -c $CONFIG_DIR/config.yaml
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -228,6 +434,7 @@ rm -f /etc/systemd/system/smtp-tunnel.service
 rm -f /usr/local/bin/smtp-tunnel-adduser
 rm -f /usr/local/bin/smtp-tunnel-deluser
 rm -f /usr/local/bin/smtp-tunnel-listusers
+rm -f /usr/local/bin/smtp-tunnel-update
 rm -rf /opt/smtp-tunnel
 
 echo ""
@@ -416,6 +623,9 @@ print_summary() {
     echo "   $CONFIG_DIR/config.yaml"
     echo "   $CONFIG_DIR/users.yaml"
     echo ""
+    echo -e "${BLUE}虚拟环境:${NC}"
+    echo "   $VENV_DIR"
+    echo ""
     echo -e "${BLUE}卸载:${NC}"
     echo "   $INSTALL_DIR/uninstall.sh"
     echo ""
@@ -426,7 +636,7 @@ main() {
     echo ""
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}  SMTP 隧道代理安装程序${NC}"
-    echo -e "${GREEN}  版本 1.2.0${NC}"
+    echo -e "${GREEN}  版本 1.3.0${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
 
@@ -435,7 +645,13 @@ main() {
     install_dependencies
     create_directories
     install_files
+    
+    # 创建和配置 Python 虚拟环境
+    create_venv
+    activate_venv
     install_python_packages
+    verify_venv
+    
     install_systemd_service
     create_uninstall_script
     interactive_setup

@@ -1,23 +1,57 @@
 [Unit]
-Description=SMTP 隧道服务器
-Documentation=https://github.com/user/smtp-tunnel
+Description=SMTP 隧道代理服务器
+Documentation=https://github.com/purpose168/smtp-tunnel-proxy
 After=network.target
+RequiresMountsFor=/opt/smtp-tunnel
+RequiresMountsFor=/etc/smtp-tunnel
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/smtp-tunnel
-ExecStart=/usr/bin/python3 /opt/smtp-tunnel/server.py -c /etc/smtp-tunnel/config.yaml
+
+# 优先使用虚拟环境中的 Python，备用使用系统 Python
+ExecStart=/opt/smtp-tunnel/venv/bin/python /opt/smtp-tunnel/server.py -c /etc/smtp-tunnel/config.yaml
+
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# 安全加固（可选）
-# NoNewPrivileges=true      # 禁止获取新权限
-# ProtectSystem=strict      # 严格保护系统目录
-# ProtectHome=true          # 保护用户主目录
-# ReadWritePaths=/etc/smtp-tunnel  # 允许写入的路径
+# Python 环境变量
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=VIRTUAL_ENV=/opt/smtp-tunnel/venv
+Environment=PATH=/opt/smtp-tunnel/venv/bin:/usr/local/bin:/usr/bin:/bin
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全加固配置
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# 允许写入的路径
+ReadWritePaths=/etc/smtp-tunnel
+ReadWritePaths=/opt/smtp-tunnel
+ReadWritePaths=/var/log/smtp-tunnel
+
+# 私有临时目录
+PrivateTmp=true
+
+# 网络绑定能力
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
