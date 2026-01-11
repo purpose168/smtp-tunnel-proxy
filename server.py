@@ -305,7 +305,31 @@ class TunnelSession:
             host = payload[1:1+host_len].decode('utf-8')
             port = struct.unpack('>H', payload[1+host_len:3+host_len])[0]
 
-            logger.info(f"CONNECT ch={channel_id} -> {host}:{port}")
+            # 处理IPv6地址格式
+            if ':' in host and '.' not in host:  # IPv6地址
+                # 修复IPv6地址格式错误（如双冒号）
+                host = host.replace(':::', '::')  # 处理可能的双冒号错误
+                
+                # 正常处理IPv6地址
+                if host.endswith('::'):
+                    # IPv6地址以::结尾，直接添加端口
+                    target_address = f"{host}{port}"
+                elif '::' in host:
+                    # 包含::的正常IPv6地址
+                    if ':443' in host:
+                        # 已经有端口，保持不变
+                        target_address = host
+                    else:
+                        # 使用方括号包装IPv6地址
+                        target_address = f"[{host}]:{port}"
+                else:
+                    # 其他形式的IPv6地址
+                    target_address = f"[{host}]:{port}"
+            else:
+                # IPv4或域名
+                target_address = f"{host}:{port}"
+            
+            logger.info(f"CONNECT ch={channel_id} -> {target_address}")
 
             try:
                 reader, writer = await asyncio.wait_for(
