@@ -288,7 +288,7 @@ class TunnelCrypto:
         1. 解码 Base64 令牌
         2. 解析令牌格式（支持新旧两种格式）
         3. 检查时间戳新鲜度（防止重放）
-        4. 验证 HMAC 签名
+        4. 验证 HMAC 签名（使用用户密钥）
         5. 检查用户是否在用户字典中
         
         Args:
@@ -318,21 +318,31 @@ class TunnelCrypto:
             if abs(now - timestamp) > max_age:
                 return False, None
             
-            # 生成预期的令牌
-            # 注意：这里需要使用一个临时密钥来生成预期的令牌
-            # 因为我们不知道用户的密钥，所以我们只验证令牌格式和时间戳
-            # 实际的用户验证在调用者完成
-            expected_token = f"{username}:{timestamp_str}:{mac_b64}" if username else f"{timestamp_str}:{mac_b64}"
-            
-            if hmac.compare_digest(token.encode(), expected_token.encode()):
-                # 检查用户是否在用户字典中
-                if username is not None and username in users:
+            # 如果有用户名，检查用户是否存在
+            if username is not None:
+                if username not in users:
+                    return False, None
+                
+                # 获取用户密钥
+                user_config = users[username]
+                user_secret = user_config.secret
+                
+                if not user_secret:
+                    return False, None
+                
+                # 使用用户密钥生成预期的令牌
+                crypto = TunnelCrypto(user_secret)
+                expected_token = crypto.generate_auth_token(timestamp, username)
+                
+                # 验证 HMAC 签名
+                if hmac.compare_digest(token.encode(), expected_token.encode()):
                     return True, username
-                elif username is None:
-                    return True, None
                 else:
                     return False, None
-            return False, None
+            else:
+                # 旧格式令牌，只验证时间戳
+                return True, None
+                
         except Exception as e:
             logger.warning(f"认证: 异常 - {e}")
             return False, None
