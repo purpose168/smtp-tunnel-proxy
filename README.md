@@ -208,15 +208,14 @@ curl -x socks5://127.0.0.1:1080 https://ifconfig.me
 ## ⚙️ 配置参考
 
 ### 🖥️ 服务器选项（`config.yaml`）
-
 | 选项 | 描述 | 默认值 |
 |--------|-------------|---------|
 | `host` | 监听接口 | `0.0.0.0` |
 | `port` | 监听端口 | `587` |
 | `hostname` | SMTP 主机名（必须与证书匹配） | `mail.example.com` |
-| `cert_file` | TLS 证书路径 | `server.crt` |
-| `key_file` | TLS 私钥路径 | `server.key` |
-| `users_file` | 用户配置文件路径 | `users.yaml` |
+| `cert_file` | TLS 证书路径 | `/etc/smtp-tunnel/data/server.crt` |
+| `key_file` | TLS 私钥路径 | `/etc/smtp-tunnel/data/server.key` |
+| `users_file` | 用户配置文件路径 | `/etc/smtp-tunnel/config/users.yaml` |
 | `log_users` | 全局日志设置 | `true` |
 
 ### 👥 用户选项（`users.yaml`）
@@ -306,12 +305,17 @@ python client.py [-c CONFIG] [--server HOST] [--server-port PORT]
 ```bash
 smtp-tunnel-adduser <username> [-u USERS_FILE] [-c CONFIG] [--no-zip]
     添加新用户并生成客户端包
+    -u, --users-file  指定用户文件（默认：/etc/smtp-tunnel/config/users.yaml）
+    -c, --config       指定配置文件（默认：/etc/smtp-tunnel/config/config.yaml）
+    --no-zip           不生成客户端 ZIP 包
 
 smtp-tunnel-deluser <username> [-u USERS_FILE] [-f]
     删除用户（使用 -f 跳过确认）
+    -u, --users-file  指定用户文件（默认：/etc/smtp-tunnel/config/users.yaml）
 
 smtp-tunnel-listusers [-u USERS_FILE] [-v]
     列出所有用户（使用 -v 显示详细信息）
+    -u, --users-file  指定用户文件（默认：/etc/smtp-tunnel/config/users.yaml）
 
 smtp-tunnel-update
     更新服务器到最新版本（保留配置/证书/用户）
@@ -325,13 +329,31 @@ smtp-tunnel-update
 smtp_proxy/
 ├── 📄 server.py               # 服务器（在 VPS 上运行）
 ├── 📄 client.py               # 客户端（在本地运行）
-├── 📄 common.py               # 共享工具
+├── 📄 common.py               # 共享工具（兼容层）
 ├── 📄 generate_certs.py       # 证书生成器
+│
+├── 📄 protocol.py             # 二进制协议定义
+├── 📄 crypto.py               # 加密和认证功能
+├── 📄 traffic.py              # 流量伪装（DPI 规避）
+├── 📄 smtp_message.py         # MIME 邮件生成
+├── 📄 config.py               # 配置管理
+│
+├── 📄 client_protocol.py      # 客户端协议定义
+├── 📄 client_socks5.py        # SOCKS5 代理实现
+├── 📄 client_tunnel.py        # 隧道客户端
+└── 📄 client_server.py        # SOCKS5 服务器
+│
+├── 📄 server_protocol.py      # 服务器协议定义
+├── 📄 server_connection.py    # 连接管理
+├── 📄 server_tunnel.py        # 隧道会话
+└── 📄 server_server.py        # 服务器类
+│
 ├── 📄 config.yaml             # 服务器/客户端配置
 ├── 📄 users.yaml              # 用户数据库
 ├── 📄 requirements.txt        # Python 依赖
 ├── 📄 install.sh              # 一键服务器安装程序
 ├── 📄 smtp-tunnel.service     # Systemd 单元文件
+│
 ├── 🔧 smtp-tunnel-adduser     # 添加用户脚本
 ├── 🔧 smtp-tunnel-deluser     # 删除用户脚本
 ├── 🔧 smtp-tunnel-listusers   # 列出用户脚本
@@ -341,20 +363,46 @@ smtp_proxy/
 ```
 
 ### 📦 安装路径（install.sh 之后）
-
 ```
 /opt/smtp-tunnel/              # 应用程序文件
+├── server.py
+├── client.py
+├── common.py
+├── generate_certs.py
+│
+├── protocol.py
+├── crypto.py
+├── traffic.py
+├── smtp_message.py
+├── config.py
+│
+├── client_protocol.py
+├── client_socks5.py
+├── client_tunnel.py
+└── client_server.py
+│
+├── server_protocol.py
+├── server_connection.py
+├── server_tunnel.py
+└── server_server.py
+│
+├── smtp-tunnel-adduser
+├── smtp-tunnel-deluser
+├── smtp-tunnel-listusers
+└── smtp-tunnel-update
+
 /etc/smtp-tunnel/              # 配置文件
-  ├── config.yaml
-  ├── users.yaml
-  ├── server.crt
-  ├── server.key
-  └── ca.crt
-/usr/local/bin/                # 管理命令
-  ├── smtp-tunnel-adduser
-  ├── smtp-tunnel-deluser
-  ├── smtp-tunnel-listusers
-  └── smtp-tunnel-update
+├── config.yaml
+├── users.yaml
+├── server.crt
+├── server.key
+└── ca.crt
+
+/usr/local/bin/               # 管理命令
+├── smtp-tunnel-adduser
+├── smtp-tunnel-deluser
+├── smtp-tunnel-listusers
+└── smtp-tunnel-update
 ```
 
 ---

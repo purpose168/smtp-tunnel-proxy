@@ -25,7 +25,20 @@ BIN_DIR="/usr/local/bin"            # 可执行文件目录
 VENV_DIR="/opt/smtp-tunnel/venv"    # Python 虚拟环境目录
 
 # 需要下载的 Python 文件
-PYTHON_FILES="server.py client.py common.py generate_certs.py"
+# 主入口文件
+MAIN_FILES="server.py client.py common.py generate_certs.py"
+
+# 从 common.py 拆分出的模块
+COMMON_MODULES="protocol.py crypto.py traffic.py smtp_message.py config.py"
+
+# 从 client.py 拆分出的模块
+CLIENT_MODULES="client_protocol.py client_socks5.py client_tunnel.py client_server.py"
+
+# 从 server.py 拆分出的模块
+SERVER_MODULES="server_protocol.py server_connection.py server_tunnel.py server_server.py"
+
+# 所有 Python 文件
+PYTHON_FILES="$MAIN_FILES $COMMON_MODULES $CLIENT_MODULES $SERVER_MODULES"
 
 # 需要下载的管理脚本
 SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"

@@ -21,25 +21,25 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      - SMTP_TUNNEL_HOME=/app
-      - SMTP_TUNNEL_CONFIG=/app/config
-      - SMTP_TUNNEL_DATA=/app/data
-      - SMTP_TUNNEL_LOGS=/app/logs
+      - SMTP_TUNNEL_HOME=/opt/smtp-tunnel
+      - SMTP_TUNNEL_CONFIG=/etc/smtp-tunnel
+      - SMTP_TUNNEL_DATA=/etc/smtp-tunnel/data
+      - SMTP_TUNNEL_LOGS=/var/log/smtp-tunnel
       - TZ=Asia/Shanghai  # 时区设置
 
     # 数据卷
     volumes:
       # 使用命名卷，数据持久化但不覆盖镜像内的默认配置
-      - smtp-tunnel-config:/app/config
-      - smtp-tunnel-data:/app/data
-      - smtp-tunnel-logs:/app/logs
+      - smtp-tunnel-config:/etc/smtp-tunnel
+      - smtp-tunnel-data:/etc/smtp-tunnel/data
+      - smtp-tunnel-logs:/var/log/smtp-tunnel
 
     # 重启策略
     restart: unless-stopped
 
     # 健康检查
     healthcheck:
-      test: ["CMD", "/app/healthcheck.sh"]
+      test: ["CMD", "/opt/smtp-tunnel/healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -84,7 +84,19 @@ networks:
 volumes:
   smtp-tunnel-config:
     driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/smtp-tunnel/config
   smtp-tunnel-data:
     driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/smtp-tunnel/data
   smtp-tunnel-logs:
     driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/smtp-tunnel/logs

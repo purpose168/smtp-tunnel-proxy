@@ -30,8 +30,13 @@ def find_project_root() -> str:
         os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'),  # 上级目录
     ]
     
-    # 检查常见的项目文件
-    project_files = ['server.py', 'client.py', 'common.py', 'requirements.txt']
+    # 检查常见的项目文件（包括拆分后的模块）
+    project_files = [
+        'server.py', 'client.py', 'common.py', 'requirements.txt',
+        'protocol.py', 'crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
+        'client_protocol.py', 'client_socks5.py', 'client_tunnel.py', 'client_server.py',
+        'server_protocol.py', 'server_connection.py', 'server_tunnel.py', 'server_server.py'
+    ]
     
     for root in possible_roots:
         # 检查是否包含所有必需的文件
@@ -41,7 +46,7 @@ def find_project_root() -> str:
                 found_files += 1
         
         # 如果找到大部分文件，认为这是项目根目录
-        if found_files >= 3:
+        if found_files >= 10:
             return root
     
     # 如果都找不到，返回当前脚本目录
@@ -51,10 +56,22 @@ def find_project_root() -> str:
 def find_required_files(base_dir: str) -> dict:
     """查找必需的文件，返回找到的文件路径字典。"""
     required_files = {
+        # 主入口文件
         'client.py': 'client.py',
-        'common.py': 'common.py', 
+        'common.py': 'common.py',
         'requirements.txt': 'requirements.txt',
-        'ca.crt': 'ca.crt'
+        'ca.crt': 'ca.crt',
+        # 从 common.py 拆分出的模块
+        'protocol.py': 'protocol.py',
+        'crypto.py': 'crypto.py',
+        'traffic.py': 'traffic.py',
+        'smtp_message.py': 'smtp_message.py',
+        'config.py': 'config.py',
+        # 从 client.py 拆分出的模块
+        'client_protocol.py': 'client_protocol.py',
+        'client_socks5.py': 'client_socks5.py',
+        'client_tunnel.py': 'client_tunnel.py',
+        'client_server.py': 'client_server.py',
     }
     
     found_files = {}
@@ -119,8 +136,16 @@ def create_client_package(
     # 查找必需的文件
     files = find_required_files(base_dir)
     
-    # 客户端文件列表
-    client_files = ['client.py', 'common.py', 'requirements.txt']
+    # 客户端文件列表（包括拆分后的所有模块）
+    client_files = [
+        # 主入口文件
+        'client.py', 'common.py',
+        # 从 common.py 拆分出的模块
+        'protocol.py', 'crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
+        # 从 client.py 拆分出的模块
+        'client_protocol.py', 'client_socks5.py', 'client_tunnel.py', 'client_server.py',
+        'requirements.txt'
+    ]
     
     # 检查 ca.crt 证书文件是否存在
     has_ca_cert = files['ca.crt'] is not None
@@ -166,10 +191,24 @@ def create_client_package(
 
 ## 文件说明
 
-- start.bat      - Windows 启动器（双击运行）
-- start.sh       - Linux/Mac 启动器（使用 ./start.sh 运行）
-- client.py      - 隧道客户端程序
-- common.py      - 共享库文件
+### 主程序文件
+- client.py      - 隧道客户端主程序
+- common.py      - 共享库文件（兼容层）
+
+### 核心模块
+- protocol.py    - 二进制协议定义
+- crypto.py      - 加密和认证功能
+- traffic.py     - 流量伪装（DPI 规避）
+- smtp_message.py - MIME 邮件生成
+- config.py      - 配置管理
+
+### 客户端模块
+- client_protocol.py - 客户端协议定义
+- client_socks5.py   - SOCKS5 代理实现
+- client_tunnel.py   - 隧道客户端
+- client_server.py   - SOCKS5 服务器
+
+### 配置文件
 - config.yaml    - 您的配置文件（已预配置）
 - ca.crt         - 用于验证的服务器证书
 - requirements.txt - Python 依赖列表

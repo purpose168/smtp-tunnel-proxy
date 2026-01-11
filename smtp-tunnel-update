@@ -19,7 +19,23 @@ GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 INSTALL_DIR="/opt/smtp-tunnel"
 
 # 要更新的文件（仅代码 - 不包括配置/证书/用户）
-UPDATE_FILES="server.py client.py common.py generate_certs.py smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"
+# 主入口文件
+MAIN_FILES="server.py client.py common.py generate_certs.py"
+
+# 从 common.py 拆分出的模块
+COMMON_MODULES="protocol.py crypto.py traffic.py smtp_message.py config.py"
+
+# 从 client.py 拆分出的模块
+CLIENT_MODULES="client_protocol.py client_socks5.py client_tunnel.py client_server.py"
+
+# 从 server.py 拆分出的模块
+SERVER_MODULES="server_protocol.py server_connection.py server_tunnel.py server_server.py"
+
+# 管理脚本
+MANAGEMENT_SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"
+
+# 所有需要更新的文件
+UPDATE_FILES="$MAIN_FILES $COMMON_MODULES $CLIENT_MODULES $SERVER_MODULES $MANAGEMENT_SCRIPTS"
 
 print_info() {
     echo -e "${GREEN}[信息]${NC} $1"  # 打印信息

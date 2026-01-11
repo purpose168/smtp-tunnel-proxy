@@ -84,30 +84,47 @@ SMTP 隧道代理是一个基于 Python 的高性能 SMTP 隧道服务，使用 
 4. **优化层缓存**: 依赖变化不影响应用代码层
 
 ### 文件系统布局
-
 ```
-/app/                          # 应用根目录
+/opt/smtp-tunnel/              # 应用根目录
 ├── server.py                  # 服务器主程序
 ├── client.py                  # 客户端程序
-├── common.py                  # 共享库
+├── common.py                  # 共享库（兼容层）
 ├── generate_certs.py          # 证书生成工具
 ├── smtp-tunnel-adduser        # 用户管理脚本
 ├── smtp-tunnel-deluser        # 用户删除脚本
 ├── smtp-tunnel-listusers      # 用户列表脚本
 ├── smtp-tunnel-update         # 更新脚本
 ├── entrypoint.sh              # 容器入口脚本
-└── healthcheck.sh             # 健康检查脚本
+├── healthcheck.sh             # 健康检查脚本
+│
+├── protocol.py                # 二进制协议定义
+├── crypto.py                  # 加密和认证功能
+├── traffic.py                 # 流量伪装（DPI 规避）
+├── smtp_message.py            # MIME 邮件生成
+├── config.py                  # 配置管理
+│
+├── client_protocol.py         # 客户端协议定义
+├── client_socks5.py           # SOCKS5 代理实现
+├── client_tunnel.py           # 隧道客户端
+└── client_server.py           # SOCKS5 服务器
+│
+├── server_protocol.py         # 服务器协议定义
+├── server_connection.py       # 连接管理
+├── server_tunnel.py           # 隧道会话
+└── server_server.py           # 服务器类
+│
+└── venv/                     # Python 虚拟环境
 
-/app/config/                   # 配置目录（卷）
+/etc/smtp-tunnel/config/                   # 配置目录（卷）
 ├── config.yaml                # 服务器配置
 └── users.yaml                 # 用户配置
 
-/app/data/                     # 数据目录（卷）
+/etc/smtp-tunnel/data/                     # 数据目录（卷）
 ├── server.crt                 # TLS 证书
 ├── server.key                 # TLS 私钥
 └── ca.crt                     # CA 证书
 
-/app/logs/                     # 日志目录（卷）
+/var/log/smtp-tunnel/                     # 日志目录（卷）
 └── smtp-tunnel.log            # 应用日志
 ```
 
@@ -123,7 +140,6 @@ SMTP 隧道代理是一个基于 Python 的高性能 SMTP 隧道服务，使用 
 - 端口 587 可用
 
 ### 一键启动
-
 ```bash
 # 克隆项目
 git clone https://github.com/purpose168/smtp-tunnel-proxy.git
@@ -136,11 +152,10 @@ docker compose up -d
 docker compose logs -f
 
 # 添加第一个用户
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-adduser alice
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-adduser alice
 ```
 
 ### 验证部署
-
 ```bash
 # 检查容器状态
 docker compose ps
@@ -377,38 +392,34 @@ spec:
 ## 配置管理
 
 ### 初始配置
-
 首次启动时，容器会自动创建默认配置文件：
-
 ```bash
 # 查看生成的配置
-docker exec smtp-tunnel cat /app/config/config.yaml
+docker exec smtp-tunnel cat /etc/smtp-tunnel/config/config.yaml
 
 # 查看用户文件
-docker exec smtp-tunnel cat /app/config/users.yaml
+docker exec smtp-tunnel cat /etc/smtp-tunnel/users.yaml
 ```
 
 ### 修改配置
 
 #### 方式一：直接编辑
-
 ```bash
 # 编辑配置文件
-docker exec -it smtp-tunnel nano /app/config/config.yaml
+docker exec -it smtp-tunnel nano /etc/smtp-tunnel/config.yaml
 
 # 重启容器应用配置
 docker compose restart smtp-tunnel
 ```
 
 #### 方式二：挂载配置文件
-
 ```bash
 # 创建本地配置目录
 mkdir -p config data logs
 
 # 复制默认配置
-docker cp smtp-tunnel:/app/config/config.yaml config/
-docker cp smtp-tunnel:/app/config/users.yaml config/
+docker cp smtp-tunnel:/etc/smtp-tunnel/config.yaml config/
+docker cp smtp-tunnel:/etc/smtp-tunnel/users.yaml config/
 
 # 编辑配置
 nano config/config.yaml
@@ -430,15 +441,14 @@ services:
 ```
 
 ### 配置文件示例
-
 ```yaml
 server:
   host: "0.0.0.0"
   port: 587
   hostname: "mail.example.com"
-  cert_file: "/app/data/server.crt"
-  key_file: "/app/data/server.key"
-  users_file: "/app/config/users.yaml"
+  cert_file: "/etc/smtp-tunnel/data/server.crt"
+  key_file: "/etc/smtp-tunnel/data/server.key"
+  users_file: "/etc/smtp-tunnel/config/users.yaml"
   log_users: true
 
 client:
@@ -452,26 +462,23 @@ client:
 ### 证书管理
 
 #### 自动生成证书
-
 容器首次启动时会自动生成证书：
-
 ```bash
 # 查看生成的证书
-docker exec smtp-tunnel ls -la /app/data/
+docker exec smtp-tunnel ls -la /etc/smtp-tunnel/data/
 
 # 查看证书详情
-docker exec smtp-tunnel openssl x509 -in /app/data/server.crt -noout -text
+docker exec smtp-tunnel openssl x509 -in /etc/smtp-tunnel/data/server.crt -noout -text
 ```
 
 #### 手动生成证书
-
 ```bash
 # 进入容器
 docker exec -it smtp-tunnel bash
 
 # 生成证书
-cd /app
-python3 generate_certs.py --hostname mail.example.com --output-dir /app/data
+cd /opt/smtp-tunnel
+python3 generate_certs.py --hostname mail.example.com --output-dir /etc/smtp-tunnel/data
 
 # 重启服务
 exit
@@ -499,51 +506,47 @@ docker compose restart smtp-tunnel
 ## 用户管理
 
 ### 添加用户
-
 ```bash
 # 添加用户（自动生成密钥）
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-adduser alice
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-adduser alice
 
 # 添加用户（指定密钥）
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-adduser bob --secret mysecret
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-adduser bob --secret mysecret
 
 # 添加用户（IP 白名单）
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-adduser carol \
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-adduser carol \
   --whitelist 192.168.1.100 \
   --whitelist 10.0.0.0/8
 
 # 添加用户（禁用日志）
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-adduser dave --no-logging
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-adduser dave --no-logging
 ```
 
 ### 删除用户
-
 ```bash
 # 删除用户
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-deluser alice
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-deluser alice
 
 # 强制删除（不确认）
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-deluser bob -f
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-deluser bob -f
 ```
 
 ### 列出用户
-
 ```bash
 # 简单列表
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-listusers
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-listusers
 
 # 详细列表（显示密钥和白名单）
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-listusers -v
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-listusers -v
 ```
 
 ### 获取客户端包
-
 ```bash
 # 添加用户时自动生成 ZIP 包
-docker compose exec smtp-tunnel python3 /app/smtp-tunnel-adduser alice
+docker compose exec smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-adduser alice
 
 # 从容器复制 ZIP 包
-docker cp smtp-tunnel:/app/alice.zip .
+docker cp smtp-tunnel:/opt/smtp-tunnel/alice.zip .
 
 # 发送给用户
 ```
@@ -567,7 +570,6 @@ done
 ## 监控与日志
 
 ### 查看日志
-
 ```bash
 # 实时查看日志
 docker compose logs -f
@@ -582,7 +584,7 @@ docker compose logs --since 2024-01-10T00:00:00
 docker logs -f smtp-tunnel-server
 
 # 查看应用日志文件
-docker exec smtp-tunnel tail -f /app/logs/smtp-tunnel.log
+docker exec smtp-tunnel tail -f /var/log/smtp-tunnel/smtp-tunnel.log
 ```
 
 ### 日志配置
@@ -658,7 +660,6 @@ docker run -d \
 ## 故障排除
 
 ### 容器无法启动
-
 ```bash
 # 查看容器日志
 docker logs smtp-tunnel-server
@@ -667,10 +668,10 @@ docker logs smtp-tunnel-server
 docker ps -a | grep smtp-tunnel
 
 # 检查配置文件
-docker exec smtp-tunnel cat /app/config/config.yaml
+docker exec smtp-tunnel cat /etc/smtp-tunnel/config.yaml
 
 # 检查文件权限
-docker exec smtp-tunnel ls -la /app/data/
+docker exec smtp-tunnel ls -la /etc/smtp-tunnel/data/
 ```
 
 ### 端口被占用

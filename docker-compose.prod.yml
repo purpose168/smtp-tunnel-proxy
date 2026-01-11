@@ -24,24 +24,24 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      - SMTP_TUNNEL_HOME=/app
-      - SMTP_TUNNEL_CONFIG=/app/config
-      - SMTP_TUNNEL_DATA=/app/data
-      - SMTP_TUNNEL_LOGS=/app/logs
+      - SMTP_TUNNEL_HOME=/opt/smtp-tunnel
+      - SMTP_TUNNEL_CONFIG=/etc/smtp-tunnel
+      - SMTP_TUNNEL_DATA=/etc/smtp-tunnel/data
+      - SMTP_TUNNEL_LOGS=/var/log/smtp-tunnel
       - TZ=Asia/Shanghai
 
     # 使用命名卷（生产环境推荐）
     volumes:
-      - smtp-tunnel-config:/app/config
-      - smtp-tunnel-data:/app/data
-      - smtp-tunnel-logs:/app/logs
+      - smtp-tunnel-config:/etc/smtp-tunnel
+      - smtp-tunnel-data:/etc/smtp-tunnel/data
+      - smtp-tunnel-logs:/var/log/smtp-tunnel
 
     # 重启策略
     restart: always
 
     # 健康检查
     healthcheck:
-      test: ["CMD", "/app/healthcheck.sh"]
+      test: ["CMD", "/opt/smtp-tunnel/healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 3

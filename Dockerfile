@@ -49,10 +49,10 @@ LABEL maintainer="SMTP Tunnel Proxy" \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
-    SMTP_TUNNEL_HOME="/app" \
-    SMTP_TUNNEL_CONFIG="/app/config" \
-    SMTP_TUNNEL_DATA="/app/data" \
-    SMTP_TUNNEL_LOGS="/app/logs"
+    SMTP_TUNNEL_HOME="/opt/smtp-tunnel" \
+    SMTP_TUNNEL_CONFIG="/etc/smtp-tunnel" \
+    SMTP_TUNNEL_DATA="/etc/smtp-tunnel/data" \
+    SMTP_TUNNEL_LOGS="/var/log/smtp-tunnel"
 
 # 安装运行时依赖（最小化）
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -76,9 +76,32 @@ RUN mkdir -p ${SMTP_TUNNEL_HOME} \
     && chown -R smtptunnel:smtptunnel ${SMTP_TUNNEL_HOME}
 
 # 复制应用程序文件
+# 主入口文件
 COPY server.py ${SMTP_TUNNEL_HOME}/
+COPY client.py ${SMTP_TUNNEL_HOME}/
 COPY common.py ${SMTP_TUNNEL_HOME}/
 COPY generate_certs.py ${SMTP_TUNNEL_HOME}/
+
+# 从 common.py 拆分出的模块
+COPY protocol.py ${SMTP_TUNNEL_HOME}/
+COPY crypto.py ${SMTP_TUNNEL_HOME}/
+COPY traffic.py ${SMTP_TUNNEL_HOME}/
+COPY smtp_message.py ${SMTP_TUNNEL_HOME}/
+COPY config.py ${SMTP_TUNNEL_HOME}/
+
+# 从 client.py 拆分出的模块
+COPY client_protocol.py ${SMTP_TUNNEL_HOME}/
+COPY client_socks5.py ${SMTP_TUNNEL_HOME}/
+COPY client_tunnel.py ${SMTP_TUNNEL_HOME}/
+COPY client_server.py ${SMTP_TUNNEL_HOME}/
+
+# 从 server.py 拆分出的模块
+COPY server_protocol.py ${SMTP_TUNNEL_HOME}/
+COPY server_connection.py ${SMTP_TUNNEL_HOME}/
+COPY server_tunnel.py ${SMTP_TUNNEL_HOME}/
+COPY server_server.py ${SMTP_TUNNEL_HOME}/
+
+# 管理脚本
 COPY smtp-tunnel-adduser ${SMTP_TUNNEL_HOME}/
 COPY smtp-tunnel-deluser ${SMTP_TUNNEL_HOME}/
 COPY smtp-tunnel-listusers ${SMTP_TUNNEL_HOME}/
@@ -116,7 +139,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD ${SMTP_TUNNEL_HOME}/healthcheck.sh
 
 # 设置入口点
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/opt/smtp-tunnel/entrypoint.sh"]
 
 # 默认命令
 CMD []
@@ -131,17 +154,17 @@ CMD []
 #   docker run -d \
 #     --name smtp-tunnel \
 #     -p 587:587 \
-#     -v smtp-tunnel-config:/app/config \
-#     -v smtp-tunnel-data:/app/data \
-#     -v smtp-tunnel-logs:/app/logs \
+#     -v smtp-tunnel-config:/etc/smtp-tunnel \
+#     -v smtp-tunnel-data:/etc/smtp-tunnel/data \
+#     -v smtp-tunnel-logs:/var/log/smtp-tunnel \
 #     smtp-tunnel-server:latest
 #
 # 添加用户:
-#   docker exec -it smtp-tunnel python3 /app/smtp-tunnel-adduser alice
+#   docker exec -it smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-adduser alice
 #
 # 查看日志:
 #   docker logs -f smtp-tunnel
 #
 # 查看用户:
-#   docker exec -it smtp-tunnel python3 /app/smtp-tunnel-listusers -v
+#   docker exec -it smtp-tunnel python3 /opt/smtp-tunnel/smtp-tunnel-listusers -v
 # ============================================================================
