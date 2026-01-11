@@ -24,12 +24,16 @@ CONFIG_DIR="/etc/smtp-tunnel"       # 配置文件目录
 BIN_DIR="/usr/local/bin"            # 可执行文件目录
 VENV_DIR="/opt/smtp-tunnel/venv"    # Python 虚拟环境目录
 
+# 日志目录
+LOG_DIR="/var/log/smtp-tunnel"
+LOGROTATE_CONF="/etc/logrotate.d/smtp-tunnel"
+
 # 需要下载的 Python 文件
 # 主入口文件
 MAIN_FILES="server.py client.py common.py generate_certs.py"
 
 # 从 common.py 拆分出的模块
-COMMON_MODULES="protocol.py crypto.py traffic.py smtp_message.py config.py"
+COMMON_MODULES="protocol.py crypto.py traffic.py smtp_message.py config.py logger.py"
 
 # 从 client.py 拆分出的模块
 CLIENT_MODULES="client_protocol.py client_socks5.py client_tunnel.py client_server.py"
@@ -141,12 +145,42 @@ create_directories() {
 
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$CONFIG_DIR"
+    mkdir -p "$LOG_DIR"
 
     chmod 755 "$INSTALL_DIR"
     chmod 700 "$CONFIG_DIR"
+    chmod 755 "$LOG_DIR"
 
     print_info "已创建: $INSTALL_DIR"
     print_info "已创建: $CONFIG_DIR"
+    print_info "已创建: $LOG_DIR"
+}
+
+# 设置日志目录权限
+setup_log_directory() {
+    print_step "设置日志目录权限..."
+
+    if [ -d "$LOG_DIR" ]; then
+        chmod 755 "$LOG_DIR"
+        chown root:root "$LOG_DIR"
+        print_info "日志目录权限已设置: $LOG_DIR"
+    else
+        print_error "日志目录不存在: $LOG_DIR"
+        return 1
+    fi
+}
+
+# 安装 logrotate 配置
+install_logrotate() {
+    print_step "安装 logrotate 配置..."
+
+    if [ -f "$INSTALL_DIR/logrotate.conf" ]; then
+        cp "$INSTALL_DIR/logrotate.conf" "$LOGROTATE_CONF"
+        chmod 644 "$LOGROTATE_CONF"
+        print_info "已安装: $LOGROTATE_CONF"
+    else
+        print_warn "未找到 logrotate.conf 文件"
+    fi
 }
 
 # 从 GitHub 下载文件
@@ -412,7 +446,10 @@ install_systemd_service() {
     cat > /etc/systemd/system/smtp-tunnel.service << EOF
 [Unit]
 Description=SMTP 隧道代理服务器
+Documentation=https://github.com/purpose168/smtp-tunnel-proxy
 After=network.target
+RequiresMountsFor=/opt/smtp-tunnel
+RequiresMountsFor=/etc/smtp-tunnel
 
 [Service]
 Type=simple
@@ -423,6 +460,53 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+
+# Python 环境变量
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=VIRTUAL_ENV=$VENV_DIR
+Environment=PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin
+
+# 日志环境变量
+Environment=LOG_LEVEL=INFO
+Environment=LOG_DIR=$LOG_DIR
+Environment=LOG_ENABLE_CONSOLE=false
+Environment=LOG_ENABLE_FILE=true
+Environment=LOG_ENABLE_JOURNAL=true
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全加固配置
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# 允许写入的路径
+ReadWritePaths=$CONFIG_DIR
+ReadWritePaths=$INSTALL_DIR
+ReadWritePaths=$LOG_DIR
+
+# 日志轮转配置
+# 日志文件将在达到大小时自动轮转
+# 使用logrotate进行日志管理
+# 配置文件位于: $LOGROTATE_CONF
+
+# 私有临时目录
+PrivateTmp=true
+
+# 网络绑定能力
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
@@ -448,11 +532,15 @@ rm -f /usr/local/bin/smtp-tunnel-adduser
 rm -f /usr/local/bin/smtp-tunnel-deluser
 rm -f /usr/local/bin/smtp-tunnel-listusers
 rm -f /usr/local/bin/smtp-tunnel-update
+rm -f /etc/logrotate.d/smtp-tunnel
 rm -rf /opt/smtp-tunnel
 
 echo ""
 echo "注意: /etc/smtp-tunnel 中的配置未被删除"
 echo "如需删除，请手动执行: rm -rf /etc/smtp-tunnel"
+echo ""
+echo "注意: 日志目录 /var/log/smtp-tunnel 未被删除"
+echo "如需删除，请手动执行: rm -rf /var/log/smtp-tunnel"
 
 systemctl daemon-reload
 
@@ -502,11 +590,47 @@ server:
   users_file: "$CONFIG_DIR/users.yaml"
   log_users: true
 
+# 日志配置
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # 日志存储目录
+  log_dir: "$LOG_DIR"
+
+  # 日志文件名
+  log_file: "smtp-tunnel.log"
+
+  # 单个日志文件最大大小（字节）- 默认 10MB
+  max_bytes: 10485760
+
+  # 保留的备份文件数量
+  backup_count: 10
+
+  # 日志轮转类型: size（按大小）, date（按日期）, both（同时按大小和日期）
+  rotation_type: "both"
+
+  # 是否输出到控制台
+  enable_console: false
+
+  # 是否输出到文件
+  enable_file: true
+
+  # 是否输出到系统日志（systemd journal）
+  enable_journal: true
+
+  # 上下文字段列表
+  context_fields:
+    - "username"
+    - "ip"
+    - "session_id"
+    - "connection_id"
+
 client:
   server_host: "$DOMAIN_NAME"
   server_port: 587
   socks_port: 1080
-  socks_host: "127.0.0.1"
+  socks_host: "0.0.0.0"
   ca_cert: "ca.crt"
 EOF
 
@@ -625,7 +749,13 @@ print_summary() {
     echo "   systemctl status smtp-tunnel"
     echo ""
     echo -e "${BLUE}查看日志:${NC}"
-    echo "   journalctl -u smtp-tunnel -f"
+    echo "   journalctl -u smtp-tunnel -f          # systemd 日志"
+    echo "   tail -f $LOG_DIR/smtp-tunnel.log      # 日志文件"
+    echo ""
+    echo -e "${BLUE}日志配置:${NC}"
+    echo "   日志目录: $LOG_DIR"
+    echo "   配置文件: $CONFIG_DIR/config.yaml"
+    echo "   logrotate: $LOGROTATE_CONF"
     echo ""
     echo -e "${BLUE}用户管理:${NC}"
     echo "   smtp-tunnel-adduser <username>    添加用户并生成客户端 ZIP"
@@ -657,6 +787,7 @@ main() {
     detect_os
     install_dependencies
     create_directories
+    setup_log_directory
     install_files
     
     # 创建和配置 Python 虚拟环境
@@ -666,6 +797,7 @@ main() {
     verify_venv
     
     install_systemd_service
+    install_logrotate
     create_uninstall_script
     interactive_setup
     print_summary

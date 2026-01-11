@@ -28,6 +28,50 @@ server:
   log_users: true
 
 # ============================================================================
+# 日志配置
+# ============================================================================
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # 日志存储目录
+  log_dir: "/var/log/smtp-tunnel"
+
+  # 日志文件名（支持日期占位符，如 smtp-tunnel-%Y-%m-%d.log）
+  log_file: "smtp-tunnel.log"
+
+  # 单个日志文件最大大小（字节）- 默认 10MB
+  max_bytes: 10485760
+
+  # 保留的备份文件数量
+  backup_count: 10
+
+  # 日志轮转类型: size（按大小）, date（按日期）, both（同时按大小和日期）
+  rotation_type: "both"
+
+  # 日期格式（用于文件名）
+  date_format: "%Y-%m-%d"
+
+  # 日志格式字符串
+  format_string: "%(asctime)s - %(name)s - %(levelname)s - [%(context)s] - %(message)s"
+
+  # 是否输出到控制台
+  enable_console: true
+
+  # 是否输出到文件
+  enable_file: true
+
+  # 是否输出到系统日志（systemd journal）
+  enable_journal: true
+
+  # 上下文字段列表（用于追踪请求、用户、会话等）
+  context_fields:
+    - "username"
+    - "ip"
+    - "session_id"
+    - "connection_id"
+
+# ============================================================================
 # 客户端配置（用于 client.py）
 # 此部分在生成客户端包时使用
 # ============================================================================

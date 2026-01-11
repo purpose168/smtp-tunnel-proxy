@@ -17,11 +17,11 @@ SMTP 隧道服务器 - 快速二进制模式
 
 # 标准库导入
 import asyncio  # 异步 I/O 框架，用于处理高并发网络连接
-import logging  # 日志记录模块
 import argparse  # 命令行参数解析
 import os  # 操作系统接口
 
 # 本地模块导入
+from logger import LoggerManager, get_logger, add_context, clear_context
 from common import (
     load_config,  # 加载服务器配置
     load_users,  # 加载用户配置
@@ -30,11 +30,7 @@ from common import (
 )
 from server_server import TunnelServer  # 隧道服务器类
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('smtp-tunnel-server')
+logger = get_logger('smtp-tunnel-server')
 
 
 def main():
@@ -97,9 +93,15 @@ def main():
     parser.add_argument('--debug', '-d', action='store_true')
     args = parser.parse_args()
 
-    # 设置日志级别 - 如果启用调试模式，设置为 DEBUG 级别
+    # 初始化日志系统
+    log_manager = LoggerManager()
+    log_manager.initialize(config_file=args.config)
+
+    # 如果启用调试模式，覆盖日志级别
     if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
+        log_manager.config.level = 'DEBUG'
+        logger.setLevel('DEBUG')
+        logger.info("调试模式已启用")
 
     # 加载配置文件 - 如果文件不存在，使用空字典
     try:
