@@ -307,30 +307,47 @@ class TunnelSession:
             port = struct.unpack('>H', payload[1+host_len:3+host_len])[0]
 
             # 处理IPv6地址格式
-            if ':' in host and '.' not in host:  # IPv6地址
-                # 修复IPv6地址格式错误（如双冒号）
-                host = host.replace(':::', '::')  # 处理可能的双冒号错误
+            is_ipv6 = ':' in host and '.' not in host
+            
+            # 修复IPv6地址格式错误
+            if is_ipv6:
+                logger.debug(f"原始IPv6地址: {host}")
                 
-                # 使用方括号包装IPv6地址
+                # 1. 确保正确的IPv6格式，将多个连续冒号替换为双冒号
+                while ':::' in host:
+                    host = host.replace(':::', '::')
+                
+                # 2. 确保双冒号只出现一次
+                if host.count('::') > 1:
+                    # 对于多个双冒号的情况，只保留第一个双冒号
+                    # 查找第一个双冒号的位置
+                    first_double_colon = host.find('::')
+                    # 移除第一个双冒号之后的所有双冒号
+                    host = host[:first_double_colon+2] + host[first_double_colon+2:].replace('::', ':')
+                
+                logger.debug(f"处理后IPv6地址: {host}")
+                
                 target_address = f"[{host}]:{port}"
             else:
-                # IPv4或域名
                 target_address = f"{host}:{port}"
             
-            logger.info(f"CONNECT ch={channel_id} -> {target_address}")
+            logger.info(f"CONNECT ch={channel_id} -> {target_address} (host: {host}, is_ipv6: {is_ipv6})")
 
             try:
-                # 自动检测地址类型，为IPv6地址添加family参数
-                if ':' in host and '.' not in host:  # IPv6地址
+                if is_ipv6:
+                    logger.debug(f"尝试IPv6连接: {host}:{port} (family=socket.AF_INET6)")
                     reader, writer = await asyncio.wait_for(
                         asyncio.open_connection(host, port, family=socket.AF_INET6),
                         timeout=30.0
                     )
-                else:  # IPv4或域名
+                    logger.debug(f"IPv6连接成功: {host}:{port}")
+                else:
+                    logger.debug(f"尝试IPv4连接: {host}:{port}")
                     reader, writer = await asyncio.wait_for(
                         asyncio.open_connection(host, port),
                         timeout=30.0
                     )
+                    logger.debug(f"IPv4连接成功: {host}:{port}")
 
                 channel = Channel(
                     channel_id=channel_id,
@@ -350,7 +367,9 @@ class TunnelSession:
                 logger.info(f"CONNECTED ch={channel_id}")
 
             except Exception as e:
-                logger.error(f"连接失败: {e}")
+                logger.error(f"连接失败: {e} (host: {host}, port: {port}, is_ipv6: {is_ipv6}, family: {socket.AF_INET6 if is_ipv6 else socket.AF_INET})")
+                import traceback
+                logger.debug(f"连接失败详情: {traceback.format_exc()}")
                 await self._send_frame(FRAME_CONNECT_FAIL, channel_id, str(e).encode()[:100])
 
         except Exception as e:
