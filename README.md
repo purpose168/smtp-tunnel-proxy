@@ -468,3 +468,7 @@ journalctl -u smtp-tunnel -f
 ---
 
 *用 ❤️ 为互联网自由而制作*
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=purpose168/smtp-tunnel-proxy&type=date&legend=top-left)](https://www.star-history.com/#purpose168/smtp-tunnel-proxy&type=date&legend=top-left)
