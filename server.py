@@ -19,6 +19,7 @@ SMTP 隧道服务器 - 快速二进制模式
 import asyncio  # 异步 I/O 框架，用于处理高并发网络连接
 import argparse  # 命令行参数解析
 import os  # 操作系统接口
+import sys  # 系统功能
 
 # 本地模块导入
 from logger import LoggerManager, get_logger, add_context, clear_context
@@ -151,4 +152,4 @@ def main():
 
 
 if __name__ == '__main__':
-    exit(main())
+    sys.exit(main())

@@ -1,7 +1,7 @@
 # SMTP 隧道代理 - Makefile
 # 简化 Docker 构建和部署操作
 
-.PHONY: help build push run stop restart logs clean test shell adduser deluser listusers
+.PHONY: help build push run stop restart logs clean test shell adduser deluser listusers build-client build-client-onefile build-client-debug build-client-windows build-client-windows-dir build-server build-server-onefile build-server-debug clean-dist install-pyinstaller list-client list-server list-all install-wine check-wine clean-docker
 
 # 默认目标
 .DEFAULT_GOAL := help
@@ -11,6 +11,21 @@ IMAGE_NAME := smtp-tunnel-server
 IMAGE_TAG := latest
 VERSION := 1.3.0
 CONTAINER_NAME := smtp-tunnel-server
+
+# PyInstaller 打包变量
+PYINSTALLER := pyinstaller
+CLIENT_SCRIPT := client.py
+CLIENT_NAME := smtp-tunnel-client
+SERVER_SCRIPT := server.py
+SERVER_NAME := smtp-tunnel-server
+DIST_DIR := dist
+BUILD_DIR := build
+CLIENT_ICON := 
+
+# Python 虚拟环境
+VENV_DIR := venv
+VENV_PYTHON := $(VENV_DIR)/bin/python
+VENV_PIP := $(VENV_DIR)/bin/pip
 
 # 颜色定义
 BLUE := \033[0;34m
@@ -260,6 +275,396 @@ install-full: ## 完整安装（创建目录并启动）
 	@mkdir -p config data logs
 	@make install
 
+# 安装 PyInstaller
+install-pyinstaller: ## 安装 PyInstaller
+	@echo "$(BLUE)[打包]$(NC) 安装 PyInstaller..."
+	@pip install pyinstaller
+	@echo "$(GREEN)[完成]$(NC) PyInstaller 安装成功"
+
+# 检查虚拟环境
+check-venv:
+	@if [ -d "$(VENV_DIR)" ]; then \
+		echo "$(GREEN)[检查]$(NC) 虚拟环境存在"; \
+		exit 0; \
+	else \
+		echo "$(YELLOW)[警告]$(NC) 虚拟环境不存在，尝试使用系统 Python"; \
+		exit 1; \
+	fi
+
+# 使用虚拟环境中的 Python
+venv-pip:
+	@if [ -d "$(VENV_DIR)" ]; then \
+		$(VENV_PIP) install pyinstaller; \
+	else \
+		pip install pyinstaller; \
+	fi
+
+# 构建客户端（目录模式 - 推荐）
+build-client: ## 构建客户端（目录模式，推荐）
+	@echo "$(BLUE)[打包]$(NC) 构建客户端（目录模式）..."
+	@mkdir -p $(DIST_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		$(VENV_PYTHON) -m PyInstaller \
+			--name $(CLIENT_NAME) \
+			--onedir \
+			--collect-all common \
+			--collect-all client_protocol \
+			--collect-all client_socks5 \
+			--collect-all client_tunnel \
+			--collect-all client_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--clean \
+			$(CLIENT_SCRIPT); \
+	else \
+		python3 -m PyInstaller \
+			--name $(CLIENT_NAME) \
+			--onedir \
+			--collect-all common \
+			--collect-all client_protocol \
+			--collect-all client_socks5 \
+			--collect-all client_tunnel \
+			--collect-all client_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--clean \
+			$(CLIENT_SCRIPT); \
+	fi
+	@echo "$(GREEN)[完成]$(NC) 客户端已打包到: $(DIST_DIR)/$(CLIENT_NAME)/"
+	@echo "$(BLUE)[提示]$(NC) 运行: ./$(DIST_DIR)/$(CLIENT_NAME)/$(CLIENT_NAME)"
+
+# 构建客户端（单文件模式 - 便携版）
+build-client-onefile: ## 构建客户端（单文件模式，便携版）
+	@echo "$(BLUE)[打包]$(NC) 构建客户端（单文件模式）..."
+	@mkdir -p $(DIST_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		$(VENV_PYTHON) -m PyInstaller \
+			--name $(CLIENT_NAME) \
+			--onefile \
+			--collect-all common \
+			--collect-all client_protocol \
+			--collect-all client_socks5 \
+			--collect-all client_tunnel \
+			--collect-all client_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--clean \
+			$(CLIENT_SCRIPT); \
+	else \
+		python3 -m PyInstaller \
+			--name $(CLIENT_NAME) \
+			--onefile \
+			--collect-all common \
+			--collect-all client_protocol \
+			--collect-all client_socks5 \
+			--collect-all client_tunnel \
+			--collect-all client_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--clean \
+			$(CLIENT_SCRIPT); \
+	fi
+	@echo "$(GREEN)[完成]$(NC) 客户端已打包到: $(DIST_DIR)/$(CLIENT_NAME)"
+	@echo "$(BLUE)[提示]$(NC) 运行: ./$(DIST_DIR)/$(CLIENT_NAME)"
+
+# 构建客户端（调试模式 - 带调试信息）
+build-client-debug: ## 构建客户端（调试模式）
+	@echo "$(BLUE)[打包]$(NC) 构建客户端（调试模式）..."
+	@mkdir -p $(DIST_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		$(VENV_PYTHON) -m PyInstaller \
+			--name $(CLIENT_NAME)-debug \
+			--onedir \
+			--debug all \
+			--collect-all common \
+			--collect-all client_protocol \
+			--collect-all client_socks5 \
+			--collect-all client_tunnel \
+			--collect-all client_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			$(CLIENT_SCRIPT); \
+	else \
+		python3 -m PyInstaller \
+			--name $(CLIENT_NAME)-debug \
+			--onedir \
+			--debug all \
+			--collect-all common \
+			--collect-all client_protocol \
+			--collect-all client_socks5 \
+			--collect-all client_tunnel \
+			--collect-all client_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			$(CLIENT_SCRIPT); \
+	fi
+	@echo "$(GREEN)[完成]$(NC) 调试版客户端已打包到: $(DIST_DIR)/$(CLIENT_NAME)-debug/"
+	@echo "$(BLUE)[提示]$(NC) 运行: ./$(DIST_DIR)/$(CLIENT_NAME)-debug/$(CLIENT_NAME)-debug"
+
+
+
+# 构建服务端（目录模式 - 推荐）
+build-server: ## 构建服务端（目录模式，推荐）
+	@echo "$(BLUE)[打包]$(NC) 构建服务端（目录模式）..."
+	@mkdir -p $(DIST_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		$(VENV_PYTHON) -m PyInstaller \
+			--name $(SERVER_NAME) \
+			--onedir \
+			--collect-all common \
+			--collect-all protocol \
+			--collect-all crypto \
+			--collect-all traffic \
+			--collect-all smtp_message \
+			--collect-all config \
+			--collect-all logger \
+			--collect-all server_protocol \
+			--collect-all server_connection \
+			--collect-all server_tunnel \
+			--collect-all server_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--hidden-import=systemd \
+			--hidden-import=systemd.journal \
+			--clean \
+			$(SERVER_SCRIPT); \
+	else \
+		python3 -m PyInstaller \
+			--name $(SERVER_NAME) \
+			--onedir \
+			--collect-all common \
+			--collect-all protocol \
+			--collect-all crypto \
+			--collect-all traffic \
+			--collect-all smtp_message \
+			--collect-all config \
+			--collect-all logger \
+			--collect-all server_protocol \
+			--collect-all server_connection \
+			--collect-all server_tunnel \
+			--collect-all server_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--hidden-import=systemd \
+			--hidden-import=systemd.journal \
+			--clean \
+			$(SERVER_SCRIPT); \
+	fi
+	@echo "$(GREEN)[完成]$(NC) 服务端已打包到: $(DIST_DIR)/$(SERVER_NAME)/"
+	@echo "$(BLUE)[提示]$(NC) 运行: ./$(DIST_DIR)/$(SERVER_NAME)/$(SERVER_NAME) -c /path/to/config.yaml"
+
+# 构建服务端（单文件模式 - 便携版）
+build-server-onefile: ## 构建服务端（单文件模式，便携版）
+	@echo "$(BLUE)[打包]$(NC) 构建服务端（单文件模式）..."
+	@mkdir -p $(DIST_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		$(VENV_PYTHON) -m PyInstaller \
+			--name $(SERVER_NAME) \
+			--onefile \
+			--collect-all common \
+			--collect-all protocol \
+			--collect-all crypto \
+			--collect-all traffic \
+			--collect-all smtp_message \
+			--collect-all config \
+			--collect-all logger \
+			--collect-all server_protocol \
+			--collect-all server_connection \
+			--collect-all server_tunnel \
+			--collect-all server_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--hidden-import=systemd \
+			--hidden-import=systemd.journal \
+			--clean \
+			$(SERVER_SCRIPT); \
+	else \
+		python3 -m PyInstaller \
+			--name $(SERVER_NAME) \
+			--onefile \
+			--collect-all common \
+			--collect-all protocol \
+			--collect-all crypto \
+			--collect-all traffic \
+			--collect-all smtp_message \
+			--collect-all config \
+			--collect-all logger \
+			--collect-all server_protocol \
+			--collect-all server_connection \
+			--collect-all server_tunnel \
+			--collect-all server_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--hidden-import=systemd \
+			--hidden-import=systemd.journal \
+			--clean \
+			$(SERVER_SCRIPT); \
+	fi
+	@echo "$(GREEN)[完成]$(NC) 服务端已打包到: $(DIST_DIR)/$(SERVER_NAME)"
+	@echo "$(BLUE)[提示]$(NC) 运行: ./$(DIST_DIR)/$(SERVER_NAME) -c /path/to/config.yaml"
+
+# 构建服务端（调试模式 - 带调试信息）
+build-server-debug: ## 构建服务端（调试模式）
+	@echo "$(BLUE)[打包]$(NC) 构建服务端（调试模式）..."
+	@mkdir -p $(DIST_DIR)
+	@if [ -d "$(VENV_DIR)" ]; then \
+		$(VENV_PYTHON) -m PyInstaller \
+			--name $(SERVER_NAME)-debug \
+			--onedir \
+			--debug all \
+			--collect-all common \
+			--collect-all protocol \
+			--collect-all crypto \
+			--collect-all traffic \
+			--collect-all smtp_message \
+			--collect-all config \
+			--collect-all logger \
+			--collect-all server_protocol \
+			--collect-all server_connection \
+			--collect-all server_tunnel \
+			--collect-all server_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--hidden-import=systemd \
+			--hidden-import=systemd.journal \
+			$(SERVER_SCRIPT); \
+	else \
+		python3 -m PyInstaller \
+			--name $(SERVER_NAME)-debug \
+			--onedir \
+			--debug all \
+			--collect-all common \
+			--collect-all protocol \
+			--collect-all crypto \
+			--collect-all traffic \
+			--collect-all smtp_message \
+			--collect-all config \
+			--collect-all logger \
+			--collect-all server_protocol \
+			--collect-all server_connection \
+			--collect-all server_tunnel \
+			--collect-all server_server \
+			--hidden-import=asyncio \
+			--hidden-import=ssl \
+			--hidden-import=cryptography \
+			--hidden-import=yaml \
+			--hidden-import=systemd \
+			--hidden-import=systemd.journal \
+			$(SERVER_SCRIPT); \
+	fi
+	@echo "$(GREEN)[完成]$(NC) 调试版服务端已打包到: $(DIST_DIR)/$(SERVER_NAME)-debug/"
+	@echo "$(BLUE)[提示]$(NC) 运行: ./$(DIST_DIR)/$(SERVER_NAME)-debug/$(SERVER_NAME)-debug -c /path/to/config.yaml"
+
+# 查看服务端
+list-server: ## 查看已打包的服务端
+	@echo "$(BLUE)[服务端]$(NC) 已打包的服务端:"
+	@ls -lh $(DIST_DIR)/$(SERVER_NAME)* 2>/dev/null || echo "尚无打包的服务端"
+
+# 查看所有已打包的应用
+list-all: ## 查看所有已打包的应用
+	@echo "$(BLUE)[打包]$(NC) 所有已打包的应用:"
+	@ls -lh $(DIST_DIR)/ 2>/dev/null || echo "尚无打包的应用"
+
+# 清理打包文件
+clean-dist: ## 清理打包文件
+	@echo "$(BLUE)[清理]$(NC) 清理打包文件..."
+	@rm -rf $(DIST_DIR) $(BUILD_DIR)
+	@rm -f *.spec
+	@echo "$(GREEN)[完成]$(NC) 清理完成"
+
+# Windows 构建环境脚本路径
+WINDOWS_BUILD_SCRIPT := $(shell [ -f ./setup-windows-build-env.sh ] && echo "./setup-windows-build-env.sh" || echo "")
+
+# Docker 构建脚本路径
+DOCKER_SCRIPT := $(shell [ -f ./build-windows-docker.sh ] && echo "./build-windows-docker.sh" || echo "")
+
+# 检查 Wine 环境
+check-wine: ## 检查 Wine 环境（使用独立脚本）
+	@if [ -z "$(WINE_SCRIPT)" ]; then \
+		echo "$(RED)[错误]$(NC) 未找到 install-wine-env.sh 脚本"; \
+		exit 1; \
+	fi
+	@$(WINE_SCRIPT) check
+
+# 安装 Windows Python 到 Wine
+install-wine: ## 安装 Windows Python 到 Wine（使用独立脚本）
+	@if [ -z "$(WINE_SCRIPT)" ]; then \
+		echo "$(RED)[错误]$(NC) 未找到 install-wine-env.sh 脚本"; \
+		exit 1; \
+	fi
+	@$(WINE_SCRIPT) install
+
+# 检查 Windows 构建环境
+check-windows-env: ## 检查 Windows 构建环境（使用独立脚本）
+	@if [ -z "$(WINDOWS_BUILD_SCRIPT)" ]; then \
+		echo "$(RED)[错误]$(NC) 未找到 setup-windows-build-env.sh 脚本"; \
+		exit 1; \
+	fi
+	@$(WINDOWS_BUILD_SCRIPT) check
+
+# 安装 Windows 构建环境
+install-windows-env: ## 安装 Windows 构建环境（使用独立脚本）
+	@if [ -z "$(WINDOWS_BUILD_SCRIPT)" ]; then \
+		echo "$(RED)[错误]$(NC) 未找到 setup-windows-build-env.sh 脚本"; \
+		exit 1; \
+	fi
+	@$(WINDOWS_BUILD_SCRIPT) install
+
+# 构建 Windows 客户端（使用 Docker，推荐）
+build-client-windows: ## 构建 Windows 客户端（使用 Docker，推荐）
+	@if [ -n "$(DOCKER_SCRIPT)" ]; then \
+		@echo "$(BLUE)[提示]$(NC) 使用 Docker 构建 Windows 客户端（推荐）"; \
+		$(DOCKER_SCRIPT) build; \
+	else \
+		@echo "$(RED)[错误]$(NC) 未找到 build-windows-docker.sh 脚本"; \
+		exit 1; \
+	fi
+
+# 构建 Windows 客户端（目录模式，使用 Docker）
+build-client-windows-dir: ## 构建 Windows 客户端（目录模式，使用 Docker）
+	@if [ -n "$(DOCKER_SCRIPT)" ]; then \
+		$(DOCKER_SCRIPT) dir; \
+	else \
+		@echo "$(RED)[错误]$(NC) 未找到 build-windows-docker.sh 脚本"; \
+		exit 1; \
+	fi
+
+# 清理 Docker 镜像
+clean-docker: ## 清理 Docker 镜像
+	@if [ -n "$(DOCKER_SCRIPT)" ]; then \
+		$(DOCKER_SCRIPT) clean; \
+	else \
+		@echo "$(RED)[错误]$(NC) 未找到 build-windows-docker.sh 脚本"; \
+		exit 1; \
+	fi
+
+# 查看客户端
+list-client: ## 查看已打包的客户端
+	@echo "$(BLUE)[客户端]$(NC) 已打包的客户端:"
+	@ls -lh $(DIST_DIR)/ 2>/dev/null || echo "尚无打包的客户端"
+
 # 信息
 info: ## 显示项目信息
 	@echo "$(BLUE)========================================$(NC)"
@@ -277,4 +682,6 @@ info: ## 显示项目信息
 	@echo "$(GREEN)数据目录:$(NC) data/"
 	@echo "$(GREEN)日志目录:$(NC) logs/"
 	@echo ""
+	@echo "$(GREEN)客户端打包:$(NC) make build-client"
+	@echo "$(GREEN)Windows 打包:$(NC) ./setup-windows-build-env.sh build"
 	@echo "$(GREEN)更多命令:$(NC) make help"

@@ -66,6 +66,7 @@ SMTP 隧道客户端 - 快速二进制模式
 import asyncio
 import logging
 import argparse
+import sys
 
 from common import load_config, ClientConfig
 from client_tunnel import TunnelClient
@@ -230,4 +231,4 @@ def main():
 
 
 if __name__ == '__main__':
-    exit(main())
+    sys.exit(main())
