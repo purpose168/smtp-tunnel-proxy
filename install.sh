@@ -75,8 +75,12 @@ log_step() {
 
 # 打印信息函数（已废弃，请使用 log_info）
 # 注意：log_info() 函数已在前面定义（第 52-56 行）
+# 保留 print_info() 函数以兼容旧代码
+print_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
 
-print_ask() {
+print_warn() {
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
