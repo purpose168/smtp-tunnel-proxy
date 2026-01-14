@@ -74,11 +74,9 @@ log_step() {
 }
 
 # 打印信息函数（已废弃，请使用 log_info）
-print_info() {
-    log_info "$1"
-}
+# 注意：log_info() 函数已在前面定义（第 52-56 行）
 
-print_warn() {
+print_ask() {
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
@@ -168,18 +166,26 @@ install_dependencies() {
 # 创建目录
 create_directories() {
     print_step "创建目录..."
-
+    
+    # 先创建日志目录（确保日志文件可以写入）
+    mkdir -p "$LOG_DIR"
+    chmod 755 "$LOG_DIR"
+    
+    # 创建日志文件（确保存在）
+    touch "$LOG_FILE"
+    chmod 644 "$LOG_FILE"
+    
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$CONFIG_DIR"
-    mkdir -p "$LOG_DIR"
-
+    
     chmod 755 "$INSTALL_DIR"
     chmod 700 "$CONFIG_DIR"
     chmod 755 "$LOG_DIR"
-
+    
     print_info "已创建: $INSTALL_DIR"
     print_info "已创建: $CONFIG_DIR"
     print_info "已创建: $LOG_DIR"
+    print_info "已创建: $LOG_FILE"
 }
 
 # 设置日志目录权限
