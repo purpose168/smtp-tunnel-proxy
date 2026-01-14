@@ -127,7 +127,7 @@ class SOCKS5Server:
         finally:
             if channel:
                 await self.tunnel.close_channel_remote(channel.channel_id)
-                await self.tunnel._close_channel(channel)
+                await self.tunnel.close_channel(channel)
             try:
                 writer.close()
                 await writer.wait_closed()
