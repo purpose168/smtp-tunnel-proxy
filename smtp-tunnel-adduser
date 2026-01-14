@@ -33,10 +33,11 @@ def find_project_root() -> str:
     # 检查常见的项目文件（包括拆分后的模块）
     project_files = [
         'server.py', 'client.py', 'common.py', 'requirements.txt',
-        'protocol.py', 'tunnel/crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
+        'protocol/__init__.py', 'protocol/core.py', 'protocol/client.py', 'protocol/server.py',
+        'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py', 'tunnel/session.py',
+        'traffic.py', 'smtp_message.py', 'config.py', 'logger.py',
         'socks5_server.py',
-        'server_connection.py', 'tunnel/server.py',
-        'tunnel/__init__.py', 'tunnel/base.py', 'tunnel/client.py', 'tunnel/session.py'
+        'tunnel/server.py',
     ]
     
     for root in possible_roots:
@@ -63,19 +64,22 @@ def find_required_files(base_dir: str) -> dict:
         'requirements.txt': 'requirements.txt',
         'ca.crt': 'ca.crt',
         # 从 common.py 拆分出的模块
-        'protocol.py': 'protocol.py',
-        'tunnel/crypto.py': 'tunnel/crypto.py',
-        'traffic.py': 'traffic.py',
-        'smtp_message.py': 'smtp_message.py',
-        'config.py': 'config.py',
-        # 从 client.py 拆分出的模块
-        'socks5_server.py': 'socks5_server.py',
-        # tunnel 模块
+        'protocol/__init__.py': 'protocol/__init__.py',
+        'protocol/core.py': 'protocol/core.py',
+        'protocol/client.py': 'protocol/client.py',
+        'protocol/server.py': 'protocol/server.py',
         'tunnel/__init__.py': 'tunnel/__init__.py',
+        'tunnel/crypto.py': 'tunnel/crypto.py',
         'tunnel/base.py': 'tunnel/base.py',
         'tunnel/client.py': 'tunnel/client.py',
         'tunnel/session.py': 'tunnel/session.py',
         'tunnel/server.py': 'tunnel/server.py',
+        'traffic.py': 'traffic.py',
+        'smtp_message.py': 'smtp_message.py',
+        'config.py': 'config.py',
+        'logger.py': 'logger.py',
+        # 从 client.py 拆分出的模块
+        'socks5_server.py': 'socks5_server.py',
     }
     
     found_files = {}
@@ -145,11 +149,11 @@ def create_client_package(
         # 主入口文件
         'client.py', 'common.py',
         # 从 common.py 拆分出的模块
-        'protocol.py', 'tunnel/crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
+        'protocol/__init__.py', 'protocol/core.py', 'protocol/client.py',
+        'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py',
+        'traffic.py', 'smtp_message.py', 'config.py', 'logger.py',
         # 从 client.py 拆分出的模块
         'socks5_server.py',
-        # tunnel 模块
-        'tunnel/__init__.py', 'tunnel/base.py', 'tunnel/client.py',
         'requirements.txt'
     ]
     
@@ -237,17 +241,8 @@ title SMTP 隧道 - {username}
 
 echo.
 echo  ╔═══════════════════════════════════════════════════════════╗
-echo  ║                                                           ║
-echo  ║   ███████╗███╗   ███╗████████╗██████╗                     ║
-echo  ║   ██╔════╝████╗ ████║╚══██╔══╝██╔══██╗                    ║
-echo  ║   ███████╗██╔████╔██║   ██║   ██████╔╝                    ║
-echo  ║   ╚════██║██║╚██╔╝██║   ██║   ██╔═══╝                     ║
-echo  ║   ███████║██║ ╚═╝ ██║   ██║   ██║                         ║
-echo  ║   ╚══════╝╚═╝     ╚═╝   ╚═╝   ╚═╝                         ║
-echo  ║                                                           ║
 echo  ║   SMTP 隧道代理客户端                                      ║
 echo  ║   用户: {username:50}║
-echo  ║                                                           ║
 echo  ╚═══════════════════════════════════════════════════════════╝
 echo.
 
@@ -325,17 +320,8 @@ clear
 echo ""
 echo -e "${{CYAN}}"
 echo "  ╔═══════════════════════════════════════════════════════════╗"
-echo "  ║                                                           ║"
-echo "  ║   ███████╗███╗   ███╗████████╗██████╗                     ║"
-echo "  ║   ██╔════╝████╗ ████║╚══██╔══╝██╔══██╗                    ║"
-echo "  ║   ███████╗██╔████╔██║   ██║   ██████╔╝                    ║"
-echo "  ║   ╚════██║██║╚██╔╝██║   ██║   ██╔═══╝                     ║"
-echo "  ║   ███████║██║ ╚═╝ ██║   ██║   ██║                         ║"
-echo "  ║   ╚══════╝╚═╝     ╚═╝   ╚═╝   ╚═╝                         ║"
-echo "  ║                                                           ║"
 echo "  ║   SMTP 隧道代理客户端                                      ║"
 echo "  ║   用户: {username:50}║"
-echo "  ║                                                           ║"
 echo "  ╚═══════════════════════════════════════════════════════════╝"
 echo -e "${{NC}}"
 echo ""
