@@ -26,7 +26,7 @@ import ssl
 import logging
 from typing import Dict
 
-from common import ServerConfig, UserConfig
+from config import ServerConfig, UserConfig
 from tunnel.session import TunnelSession
 
 logger = logging.getLogger(__name__)
