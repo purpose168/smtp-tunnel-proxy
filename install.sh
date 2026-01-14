@@ -847,12 +847,6 @@ verify_installation() {
         return 1
     fi
     
-    # 检查配置文件
-    if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
-        log_error "配置文件不存在: $CONFIG_DIR/config.yaml"
-        return 1
-    fi
-    
     # 检查虚拟环境
     if [ ! -d "$VENV_DIR" ]; then
         log_error "虚拟环境不存在: $VENV_DIR"
@@ -863,6 +857,20 @@ verify_installation() {
     if [ ! -f "/etc/systemd/system/smtp-tunnel.service" ]; then
         log_error "服务文件不存在: /etc/systemd/system/smtp-tunnel.service"
         return 1
+    fi
+    
+    # 检查配置文件（如果存在）
+    if [ -f "$CONFIG_DIR/config.yaml" ]; then
+        log_info "配置文件已创建: $CONFIG_DIR/config.yaml"
+    else
+        log_warn "配置文件尚未创建（将在交互式设置中创建）"
+    fi
+    
+    # 检查用户文件（如果存在）
+    if [ -f "$CONFIG_DIR/users.yaml" ]; then
+        log_info "用户文件已创建: $CONFIG_DIR/users.yaml"
+    else
+        log_warn "用户文件尚未创建（将在交互式设置中创建）"
     fi
     
     log_info "安装验证通过"
