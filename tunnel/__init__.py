@@ -28,11 +28,13 @@ SMTP 隧道统一模块
 
 from .base import BaseTunnel
 from .client import TunnelClient
-from .session import TunnelSession
 
-# 延迟导入 TunnelServer 以避免循环导入
+# 延迟导入 TunnelSession 和 TunnelServer 以避免循环导入
 def __getattr__(name):
-    if name == 'TunnelServer':
+    if name == 'TunnelSession':
+        from .session import TunnelSession
+        return TunnelSession
+    elif name == 'TunnelServer':
         from .server import TunnelServer
         return TunnelServer
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

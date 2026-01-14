@@ -78,6 +78,7 @@ def find_required_files(base_dir: str) -> dict:
         'smtp_message.py': 'smtp_message.py',
         'config.py': 'config.py',
         'logger.py': 'logger.py',
+        'connection.py': 'connection.py',
         # 从 client.py 拆分出的模块
         'socks5_server.py': 'socks5_server.py',
     }
@@ -151,7 +152,7 @@ def create_client_package(
         # 从 common.py 拆分出的模块
         'protocol/__init__.py', 'protocol/core.py', 'protocol/client.py',
         'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py',
-        'traffic.py', 'smtp_message.py', 'config.py', 'logger.py',
+        'traffic.py', 'smtp_message.py', 'config.py', 'logger.py', 'connection.py',
         # 从 client.py 拆分出的模块
         'socks5_server.py',
         'requirements.txt'
@@ -168,7 +169,17 @@ def create_client_package(
         # 复制客户端文件
         for filename in client_files:
             if files[filename] and os.path.exists(files[filename]):
-                shutil.copy(files[filename], pkg_dir)            # 复制文件到包目录
+                # 处理子目录结构
+                if '/' in filename:
+                    # 创建子目录
+                    subdir = os.path.dirname(filename)
+                    target_dir = os.path.join(pkg_dir, subdir)
+                    os.makedirs(target_dir, exist_ok=True)
+                    # 复制文件到子目录
+                    shutil.copy(files[filename], target_dir)
+                else:
+                    # 复制文件到包目录
+                    shutil.copy(files[filename], pkg_dir)
             else:
                 print(f"警告: {filename} 未找到，跳过")
 
