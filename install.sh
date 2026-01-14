@@ -34,13 +34,13 @@ LOG_FILE="$LOG_DIR/install.log"
 MAIN_FILES="server.py client.py common.py generate_certs.py"
 
 # 从 common.py 拆分出的模块
-COMMON_MODULES="protocol/ tunnel/crypto.py traffic.py smtp_message.py config.py logger.py"
+COMMON_MODULES="protocol/__init__.py protocol/core.py tunnel/crypto.py traffic.py smtp_message.py config.py logger.py"
 
 # 从 client.py 拆分出的模块
-CLIENT_MODULES="socks5_server.py tunnel/"
+CLIENT_MODULES="socks5_server.py tunnel/client.py"
 
 # 从 server.py 拆分出的模块
-SERVER_MODULES="tunnel/"
+SERVER_MODULES="tunnel/server.py"   
 
 # 所有 Python 文件
 PYTHON_FILES="$MAIN_FILES $COMMON_MODULES $CLIENT_MODULES $SERVER_MODULES"
