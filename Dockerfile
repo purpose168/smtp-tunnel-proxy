@@ -84,22 +84,24 @@ COPY generate_certs.py ${SMTP_TUNNEL_HOME}/
 
 # 从 common.py 拆分出的模块
 COPY protocol.py ${SMTP_TUNNEL_HOME}/
-COPY crypto.py ${SMTP_TUNNEL_HOME}/
+COPY tunnel/crypto.py ${SMTP_TUNNEL_HOME}/tunnel/
 COPY traffic.py ${SMTP_TUNNEL_HOME}/
 COPY smtp_message.py ${SMTP_TUNNEL_HOME}/
 COPY config.py ${SMTP_TUNNEL_HOME}/
 
 # 从 client.py 拆分出的模块
-COPY client_protocol.py ${SMTP_TUNNEL_HOME}/
-COPY client_socks5.py ${SMTP_TUNNEL_HOME}/
-COPY client_tunnel.py ${SMTP_TUNNEL_HOME}/
-COPY client_server.py ${SMTP_TUNNEL_HOME}/
+# client_socks5.py 已整合到 connection.py，不再需要单独复制
+COPY socks5_server.py ${SMTP_TUNNEL_HOME}/
 
 # 从 server.py 拆分出的模块
-COPY server_protocol.py ${SMTP_TUNNEL_HOME}/
 COPY server_connection.py ${SMTP_TUNNEL_HOME}/
-COPY server_tunnel.py ${SMTP_TUNNEL_HOME}/
-COPY server_server.py ${SMTP_TUNNEL_HOME}/
+COPY tunnel/server.py ${SMTP_TUNNEL_HOME}/tunnel/
+
+# 隧道模块
+COPY tunnel/__init__.py ${SMTP_TUNNEL_HOME}/tunnel/
+COPY tunnel/base.py ${SMTP_TUNNEL_HOME}/tunnel/
+COPY tunnel/client.py ${SMTP_TUNNEL_HOME}/tunnel/
+COPY tunnel/session.py ${SMTP_TUNNEL_HOME}/tunnel/
 
 # 管理脚本
 COPY smtp-tunnel-adduser ${SMTP_TUNNEL_HOME}/

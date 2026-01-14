@@ -339,9 +339,8 @@ smtp_proxy/
 ├── 📄 config.py               # 配置管理
 │
 ├── 📄 client_protocol.py      # 客户端协议定义
-├── 📄 client_socks5.py        # SOCKS5 代理实现
 ├── 📄 client_tunnel.py        # 隧道客户端
-└── 📄 client_server.py        # SOCKS5 服务器
+├── 📄 socks5_server.py        # SOCKS5 服务器
 │
 ├── 📄 server_protocol.py      # 服务器协议定义
 ├── 📄 server_connection.py    # 连接管理
@@ -377,9 +376,8 @@ smtp_proxy/
 ├── config.py
 │
 ├── client_protocol.py
-├── client_socks5.py
 ├── client_tunnel.py
-└── client_server.py
+└── socks5_server.py
 │
 ├── server_protocol.py
 ├── server_connection.py

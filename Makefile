@@ -308,9 +308,9 @@ build-client: ## 构建客户端（目录模式，推荐）
 			--name $(CLIENT_NAME) \
 			--onedir \
 			--collect-all common \
-			--collect-all client_protocol \
+			--collect-all protocol \
+			--collect-all tunnel \
 			--collect-all client_socks5 \
-			--collect-all client_tunnel \
 			--collect-all client_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -323,9 +323,9 @@ build-client: ## 构建客户端（目录模式，推荐）
 			--name $(CLIENT_NAME) \
 			--onedir \
 			--collect-all common \
-			--collect-all client_protocol \
+			--collect-all protocol \
+			--collect-all tunnel \
 			--collect-all client_socks5 \
-			--collect-all client_tunnel \
 			--collect-all client_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -346,9 +346,9 @@ build-client-onefile: ## 构建客户端（单文件模式，便携版）
 			--name $(CLIENT_NAME) \
 			--onefile \
 			--collect-all common \
-			--collect-all client_protocol \
+			--collect-all protocol \
+			--collect-all tunnel \
 			--collect-all client_socks5 \
-			--collect-all client_tunnel \
 			--collect-all client_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -361,9 +361,9 @@ build-client-onefile: ## 构建客户端（单文件模式，便携版）
 			--name $(CLIENT_NAME) \
 			--onefile \
 			--collect-all common \
-			--collect-all client_protocol \
+			--collect-all protocol \
+			--collect-all tunnel \
 			--collect-all client_socks5 \
-			--collect-all client_tunnel \
 			--collect-all client_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -385,9 +385,9 @@ build-client-debug: ## 构建客户端（调试模式）
 			--onedir \
 			--debug all \
 			--collect-all common \
-			--collect-all client_protocol \
+			--collect-all protocol \
+			--collect-all tunnel \
 			--collect-all client_socks5 \
-			--collect-all client_tunnel \
 			--collect-all client_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -400,9 +400,9 @@ build-client-debug: ## 构建客户端（调试模式）
 			--onedir \
 			--debug all \
 			--collect-all common \
-			--collect-all client_protocol \
+			--collect-all protocol \
+			--collect-all tunnel \
 			--collect-all client_socks5 \
-			--collect-all client_tunnel \
 			--collect-all client_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -430,9 +430,8 @@ build-server: ## 构建服务端（目录模式，推荐）
 			--collect-all smtp_message \
 			--collect-all config \
 			--collect-all logger \
-			--collect-all server_protocol \
+			--collect-all tunnel \
 			--collect-all server_connection \
-			--collect-all server_tunnel \
 			--collect-all server_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -453,9 +452,8 @@ build-server: ## 构建服务端（目录模式，推荐）
 			--collect-all smtp_message \
 			--collect-all config \
 			--collect-all logger \
-			--collect-all server_protocol \
+			--collect-all tunnel \
 			--collect-all server_connection \
-			--collect-all server_tunnel \
 			--collect-all server_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -484,9 +482,8 @@ build-server-onefile: ## 构建服务端（单文件模式，便携版）
 			--collect-all smtp_message \
 			--collect-all config \
 			--collect-all logger \
-			--collect-all server_protocol \
+			--collect-all tunnel \
 			--collect-all server_connection \
-			--collect-all server_tunnel \
 			--collect-all server_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -507,9 +504,8 @@ build-server-onefile: ## 构建服务端（单文件模式，便携版）
 			--collect-all smtp_message \
 			--collect-all config \
 			--collect-all logger \
-			--collect-all server_protocol \
+			--collect-all tunnel \
 			--collect-all server_connection \
-			--collect-all server_tunnel \
 			--collect-all server_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -539,9 +535,8 @@ build-server-debug: ## 构建服务端（调试模式）
 			--collect-all smtp_message \
 			--collect-all config \
 			--collect-all logger \
-			--collect-all server_protocol \
+			--collect-all tunnel \
 			--collect-all server_connection \
-			--collect-all server_tunnel \
 			--collect-all server_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \
@@ -562,9 +557,8 @@ build-server-debug: ## 构建服务端（调试模式）
 			--collect-all smtp_message \
 			--collect-all config \
 			--collect-all logger \
-			--collect-all server_protocol \
+			--collect-all tunnel \
 			--collect-all server_connection \
-			--collect-all server_tunnel \
 			--collect-all server_server \
 			--hidden-import=asyncio \
 			--hidden-import=ssl \

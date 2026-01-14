@@ -11,8 +11,8 @@ import socket
 import struct
 import logging
 
-from client_socks5 import SOCKS5, Channel
-from client_tunnel import TunnelClient
+from connection import SOCKS5, Channel
+from tunnel.client import TunnelClient
 
 logger = logging.getLogger('smtp-tunnel-client')
 
@@ -108,13 +108,12 @@ class SOCKS5Server:
                 writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_SUCCESS, 0, 1, 0, 0, 0, 0, 0, 0]))
                 await writer.drain()
 
-                channel = Channel(
+                channel = Channel.create_client_channel(
                     channel_id=channel_id,
                     reader=reader,
                     writer=writer,
                     host=host,
-                    port=port,
-                    connected=True
+                    port=port
                 )
                 self.tunnel.channels[channel_id] = channel
 

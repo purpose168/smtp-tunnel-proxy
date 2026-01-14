@@ -104,9 +104,8 @@ SMTP 隧道代理是一个基于 Python 的高性能 SMTP 隧道服务，使用 
 ├── config.py                  # 配置管理
 │
 ├── client_protocol.py         # 客户端协议定义
-├── client_socks5.py           # SOCKS5 代理实现
 ├── client_tunnel.py           # 隧道客户端
-└── client_server.py           # SOCKS5 服务器
+└── socks5_server.py           # SOCKS5 服务器
 │
 ├── server_protocol.py         # 服务器协议定义
 ├── server_connection.py       # 连接管理

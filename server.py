@@ -29,7 +29,7 @@ from common import (
     ServerConfig,  # 服务器配置数据类
     UserConfig,  # 用户配置数据类
 )
-from server_server import TunnelServer  # 隧道服务器类
+from tunnel.server import TunnelServer  # 隧道服务器类
 
 logger = get_logger('smtp-tunnel-server')
 

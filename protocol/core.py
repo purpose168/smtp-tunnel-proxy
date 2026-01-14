@@ -1,5 +1,5 @@
 """
-SMTP 隧道 - 协议定义
+SMTP 隧道 - 核心协议模块
 定义隧道协议的常量、消息类型和消息格式。
 
 版本: 1.3.0
@@ -13,6 +13,7 @@ SMTP 隧道 - 协议定义
 1. 协议常量定义 - 版本号、载荷大小、加密参数
 2. 消息类型枚举 - 定义所有隧道消息类型
 3. 隧道消息类 - 消息序列化和反序列化
+4. 兼容旧接口的函数式方法
 
 协议架构:
 - 使用 SMTP 协议作为传输层，伪装成正常的邮件通信
@@ -31,7 +32,7 @@ SMTP 隧道 - 协议定义
 
 import struct
 from enum import IntEnum
-from typing import Tuple
+from typing import Tuple, Optional
 from dataclasses import dataclass
 
 
@@ -43,6 +44,7 @@ PROTOCOL_VERSION = 1
 MAX_PAYLOAD_SIZE = 65535
 NONCE_SIZE = 12
 TAG_SIZE = 16
+FRAME_HEADER_SIZE = 6  # 包括版本字段
 
 
 # ============================================================================
@@ -102,7 +104,7 @@ class TunnelMessage:
     channel_id: int
     payload: bytes
 
-    HEADER_SIZE = 6
+    HEADER_SIZE = FRAME_HEADER_SIZE
 
     def serialize(self) -> bytes:
         """
@@ -290,3 +292,72 @@ class TunnelMessage:
         host = self.payload[1:1+host_len].decode('utf-8')
         port = struct.unpack('>H', self.payload[1+host_len:3+host_len])[0]
         return host, port
+
+
+# ============================================================================
+# 兼容接口（为了向后兼容原有的函数式接口）
+# ============================================================================
+
+# 常量别名，保持向后兼容
+FRAME_DATA = MsgType.DATA.value
+FRAME_CONNECT = MsgType.CONNECT.value
+FRAME_CONNECT_OK = MsgType.CONNECT_OK.value
+FRAME_CONNECT_FAIL = MsgType.CONNECT_FAIL.value
+FRAME_CLOSE = MsgType.CLOSE.value
+
+
+def make_frame(frame_type: int, channel_id: int, payload: bytes = b'') -> bytes:
+    """
+    创建二进制帧
+    
+    帧格式: 类型(1字节) + 通道ID(2字节) + 负载长度(2字节) + 负载
+    所有多字节字段使用网络字节序（大端序）
+    
+    Args:
+        frame_type: 帧类型，取值为 FRAME_DATA、FRAME_CONNECT、FRAME_CONNECT_OK、FRAME_CONNECT_FAIL 或 FRAME_CLOSE
+        channel_id: 通道ID，用于标识不同的隧道连接（0-65535）
+        payload: 负载数据，默认为空字节
+    
+    Returns:
+        bytes: 完整的二进制帧，包括帧头和负载
+    """
+    msg = TunnelMessage(MsgType(frame_type), channel_id, payload)
+    return msg.serialize()
+
+
+def parse_frame_header(data: bytes) -> Optional[Tuple[int, int, int]]:
+    """
+    解析帧头，返回帧类型、通道ID和负载长度
+    
+    帧头格式: 类型(1字节) + 通道ID(2字节) + 负载长度(2字节) = 5字节
+    
+    Args:
+        data: 原始字节数据，至少包含5字节的帧头
+    
+    Returns:
+        tuple: (frame_type, channel_id, payload_len) 如果数据足够
+        None: 如果数据不足5字节
+    """
+    if len(data) < TunnelMessage.HEADER_SIZE:
+        return None
+    version, msg_type, channel_id, payload_len = struct.unpack(
+        '>BBHH', data[:TunnelMessage.HEADER_SIZE]
+    )
+    return msg_type, channel_id, payload_len
+
+
+def make_connect_payload(host: str, port: int) -> bytes:
+    """
+    构造连接请求的载荷
+    
+    载荷格式: [主机名长度(1B)] [主机名(UTF-8编码)] [端口(2B, 大端序)]
+    
+    Args:
+        host: 目标主机名或IP地址
+        port: 目标端口号
+    
+    Returns:
+        连接请求载荷字节数组
+    """
+    host_bytes = host.encode('utf-8')
+    return struct.pack('>B', len(host_bytes)) + host_bytes + struct.pack('>H', port)

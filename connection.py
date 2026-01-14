@@ -1,14 +1,45 @@
 """
-连接管理模块 - 管理隧道通道和连接策略
+连接管理模块 - 统一的通道和连接管理
 
-此模块定义了隧道通道数据类和 IPv4 回退地址池，
-用于管理从客户端到目标主机的 TCP 连接。
+本模块整合了 SOCKS5 协议常量、通道数据类和连接管理功能，
+提供客户端和服务器端的统一接口。
+
+主要功能:
+- SOCKS5 协议常量定义
+- IPv4 回退地址池管理
+- 统一的隧道通道数据类
+- TCP 连接管理（支持多种连接策略）
+- 通道资源清理
+
+版本: 1.3.0
 """
 
 import asyncio
 import socket
-from dataclasses import dataclass, field
-from typing import Optional, Dict, List
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+
+# ============================================================================
+# SOCKS5 协议常量
+# ============================================================================
+
+class SOCKS5:
+    """
+    SOCKS5 协议常量定义
+    
+    SOCKS5 是一种网络协议，客户端通过代理服务器与任意服务器进行通信。
+    本实现支持 CONNECT 命令，用于建立 TCP 隧道。
+    """
+    VERSION = 0x05
+    AUTH_NONE = 0x00
+    CMD_CONNECT = 0x01
+    ATYP_IPV4 = 0x01
+    ATYP_DOMAIN = 0x03
+    ATYP_IPV6 = 0x04
+    REP_SUCCESS = 0x00
+    REP_FAILURE = 0x01
+
 
 # ============================================================================
 # IPv4 地址池 - 用于纯 IPv6 地址的回退
@@ -25,6 +56,7 @@ IPv4_FALLBACK_POOL = {
     'www.apple.com': ['17.253.144.10', '17.253.144.11'],
 }
 
+
 # ============================================================================
 # 通道 - 隧道化的 TCP 连接
 # ============================================================================
@@ -34,32 +66,37 @@ class Channel:
     """
     隧道通道数据类 - 表示一个隧道化的 TCP 连接
     
-    每个通道对应一个从客户端到目标主机的 TCP 连接，
-    通过 SMTP 隧道进行数据传输。通道支持全双工通信，
-    即可以同时进行双向数据传输。
+    统一的通道接口，支持客户端和服务器端的通道管理。
+    每个通道对应一个 TCP 连接，通过 SMTP 隧道进行数据传输。
+    通道支持全双工通信，即可以同时进行双向数据传输。
     
     Attributes:
         channel_id: 通道唯一标识符（0-65535），用于在二进制协议中标识不同的连接
         host: 目标主机名或 IP 地址
         port: 目标端口号
-        reader: asyncio.StreamReader，用于从目标主机读取数据
-        writer: asyncio.StreamWriter，用于向目标主机写入数据
-        connected: 连接状态标志，True 表示已成功连接到目标主机
-        reader_task: 异步任务对象，用于从目标主机读取数据并转发给客户端
+        reader: asyncio.StreamReader，用于读取数据（客户端为 SOCKS 客户端，服务器为目标主机）
+        writer: asyncio.StreamWriter，用于写入数据（客户端为 SOCKS 客户端，服务器为目标主机）
+        connected: 连接状态标志，True 表示已成功连接
+        reader_task: 异步任务对象，仅服务器端使用，用于从目标主机读取数据并转发
     
     Lifecycle:
         1. 创建 Channel 对象（未连接状态）
-        2. 建立到目标主机的 TCP 连接
-        3. 创建 reader_task 开始读取数据
+        2. 建立连接（客户端：SOCKS 客户端；服务器：目标主机）
+        3. 服务器端创建 reader_task 开始读取数据
         4. 传输数据（双向）
         5. 关闭连接并清理资源
     
     Example:
-        >>> channel = Channel(channel_id=1, host='example.com', port=80)
-        >>> reader, writer = await asyncio.open_connection('example.com', 80)
-        >>> channel.reader = reader
-        >>> channel.writer = writer
-        >>> channel.connected = True
+        # 客户端通道创建
+        >>> channel = Channel.create_client_channel(
+        ...     channel_id=1, reader=reader, writer=writer,
+        ...     host='example.com', port=80
+        ... )
+        
+        # 服务器通道创建
+        >>> channel = Channel.create_server_channel(
+        ...     channel_id=1, host='example.com', port=80
+        ... )
     """
     channel_id: int
     host: str
@@ -69,11 +106,79 @@ class Channel:
     connected: bool = False
     reader_task: Optional[asyncio.Task] = None
 
+    @classmethod
+    def create_client_channel(cls, channel_id: int, reader: asyncio.StreamReader,
+                           writer: asyncio.StreamWriter, host: str, port: int) -> 'Channel':
+        """
+        创建客户端通道
+        
+        客户端通道用于 SOCKS5 客户端连接，reader 和 writer 必须提供。
+        
+        Args:
+            channel_id: 通道唯一标识符
+            reader: 从 SOCKS 客户端读取数据的异步流读取器
+            writer: 向 SOCKS 客户端写入数据的异步流写入器
+            host: 目标主机地址
+            port: 目标端口
+        
+        Returns:
+            Channel: 已连接的客户端通道对象
+        """
+        return cls(
+            channel_id=channel_id,
+            reader=reader,
+            writer=writer,
+            host=host,
+            port=port,
+            connected=True
+        )
+
+    @classmethod
+    def create_server_channel(cls, channel_id: int, host: str, port: int) -> 'Channel':
+        """
+        创建服务器通道
+        
+        服务器通道用于目标主机连接，reader 和 writer 在连接建立后设置。
+        
+        Args:
+            channel_id: 通道唯一标识符
+            host: 目标主机地址
+            port: 目标端口
+        
+        Returns:
+            Channel: 未连接的服务器通道对象
+        """
+        return cls(
+            channel_id=channel_id,
+            host=host,
+            port=port,
+            connected=False
+        )
+
+    def is_client_channel(self) -> bool:
+        """
+        判断是否为客户端通道
+        
+        Returns:
+            bool: True 表示客户端通道，False 表示服务器通道
+        """
+        return self.reader_task is None and self.reader is not None
+
+    def is_server_channel(self) -> bool:
+        """
+        判断是否为服务器通道
+        
+        Returns:
+            bool: True 表示服务器通道，False 表示客户端通道
+        """
+        return self.reader_task is not None
+
+
 # ============================================================================
 # 连接策略和辅助函数
 # ============================================================================
 
-async def connect_to_target(host: str, port: int, ipv6_supported: bool = True) -> tuple[Optional[asyncio.StreamReader], Optional[asyncio.StreamWriter]]:
+async def connect_to_target(host: str, port: int, ipv6_supported: bool = True) -> Tuple[Optional[asyncio.StreamReader], Optional[asyncio.StreamWriter]]:
     """
     建立到目标主机的 TCP 连接，支持多种连接策略
     
@@ -167,6 +272,7 @@ async def connect_to_target(host: str, port: int, ipv6_supported: bool = True) -
             pass
     
     return None, None
+
 
 def close_channel(channel: Channel):
     """

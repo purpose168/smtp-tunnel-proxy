@@ -31,13 +31,13 @@ UPDATE_LOG="$LOG_DIR/update.log"
 MAIN_FILES="server.py client.py common.py generate_certs.py"
 
 # 从 common.py 拆分出的模块
-COMMON_MODULES="protocol.py crypto.py traffic.py smtp_message.py config.py logger.py"
+COMMON_MODULES="protocol.py tunnel/crypto.py traffic.py smtp_message.py config.py logger.py"
 
 # 从 client.py 拆分出的模块
-CLIENT_MODULES="client_protocol.py client_socks5.py client_tunnel.py client_server.py"
+CLIENT_MODULES="socks5_server.py tunnel/"
 
 # 从 server.py 拆分出的模块
-SERVER_MODULES="server_protocol.py server_connection.py server_tunnel.py server_server.py"
+SERVER_MODULES="server_connection.py tunnel/"
 
 # 管理脚本
 MANAGEMENT_SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"

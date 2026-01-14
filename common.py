@@ -7,7 +7,7 @@ SMTP 隧道 - 通用协议和工具（兼容层）
 注意:
 此文件已重构为兼容层，所有功能已拆分到以下模块:
 - protocol.py: 协议常量、消息类型和消息类
-- crypto.py: 加密/解密功能
+- tunnel/crypto.py: 加密/解密功能
 - traffic.py: 流量整形
 - smtp_message.py: SMTP 消息生成
 - config.py: 配置管理和用户管理
@@ -31,7 +31,7 @@ from protocol import (
 # ============================================================================
 # 从 crypto.py 导入
 # ============================================================================
-from crypto import (
+from tunnel.crypto import (
     TunnelCrypto,
 )
 

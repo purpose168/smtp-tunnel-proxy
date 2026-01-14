@@ -27,19 +27,20 @@ VENV_DIR="/opt/smtp-tunnel/venv"    # Python 虚拟环境目录
 # 日志目录
 LOG_DIR="/var/log/smtp-tunnel"
 LOGROTATE_CONF="/etc/logrotate.d/smtp-tunnel"
+LOG_FILE="$LOG_DIR/install.log"
 
 # 需要下载的 Python 文件
 # 主入口文件
 MAIN_FILES="server.py client.py common.py generate_certs.py"
 
 # 从 common.py 拆分出的模块
-COMMON_MODULES="protocol.py crypto.py traffic.py smtp_message.py config.py logger.py"
+COMMON_MODULES="protocol.py tunnel/crypto.py traffic.py smtp_message.py config.py logger.py"
 
 # 从 client.py 拆分出的模块
-CLIENT_MODULES="client_protocol.py client_socks5.py client_tunnel.py client_server.py"
+CLIENT_MODULES="socks5_server.py tunnel/"
 
 # 从 server.py 拆分出的模块
-SERVER_MODULES="server_protocol.py server_connection.py server_tunnel.py server_server.py"
+SERVER_MODULES="tunnel/"
 
 # 所有 Python 文件
 PYTHON_FILES="$MAIN_FILES $COMMON_MODULES $CLIENT_MODULES $SERVER_MODULES"
@@ -47,9 +48,34 @@ PYTHON_FILES="$MAIN_FILES $COMMON_MODULES $CLIENT_MODULES $SERVER_MODULES"
 # 需要下载的管理脚本
 SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"
 
-# 打印信息函数
+# 日志记录函数
+log_info() {
+    local message=$1
+    print_info "$message"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $message" >> "$LOG_FILE"
+}
+
+log_warn() {
+    local message=$1
+    print_warn "$message"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN] $message" >> "$LOG_FILE"
+}
+
+log_error() {
+    local message=$1
+    print_error "$message"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $message" >> "$LOG_FILE"
+}
+
+log_step() {
+    local message=$1
+    print_step "$message"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [STEP] $message" >> "$LOG_FILE"
+}
+
+# 打印信息函数（已废弃，请使用 log_info）
 print_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    log_info "$1"
 }
 
 print_warn() {
@@ -749,12 +775,12 @@ print_summary() {
     echo "   systemctl status smtp-tunnel"
     echo ""
     echo -e "${BLUE}查看日志:${NC}"
-    echo "   journalctl -u smtp-tunnel -f          # systemd 日志"
-    echo "   tail -f $LOG_DIR/smtp-tunnel.log      # 日志文件"
+    echo "   journalctl -u smtp-tunnel -n 50          # systemd 日志"
+    echo "   tail -f $LOG_FILE                      # 安装日志"
     echo ""
     echo -e "${BLUE}日志配置:${NC}"
     echo "   日志目录: $LOG_DIR"
-    echo "   配置文件: $CONFIG_DIR/config.yaml"
+    echo "   安装日志: $LOG_FILE"
     echo "   logrotate: $LOGROTATE_CONF"
     echo ""
     echo -e "${BLUE}用户管理:${NC}"
@@ -772,6 +798,63 @@ print_summary() {
     echo -e "${BLUE}卸载:${NC}"
     echo "   $INSTALL_DIR/uninstall.sh"
     echo ""
+}
+
+# 验证安装
+verify_installation() {
+    print_step "验证安装..."
+    
+    # 检查安装目录
+    if [ ! -d "$INSTALL_DIR" ]; then
+        log_error "安装目录不存在: $INSTALL_DIR"
+        return 1
+    fi
+    
+    # 检查配置文件
+    if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
+        log_error "配置文件不存在: $CONFIG_DIR/config.yaml"
+        return 1
+    fi
+    
+    # 检查虚拟环境
+    if [ ! -d "$VENV_DIR" ]; then
+        log_error "虚拟环境不存在: $VENV_DIR"
+        return 1
+    fi
+    
+    # 检查服务文件
+    if [ ! -f "/etc/systemd/system/smtp-tunnel.service" ]; then
+        log_error "服务文件不存在: /etc/systemd/system/smtp-tunnel.service"
+        return 1
+    fi
+    
+    log_info "安装验证通过"
+    return 0
+}
+
+# 回滚安装
+rollback_installation() {
+    print_step "回滚安装..."
+    
+    log_warn "正在删除安装的文件..."
+    
+    # 停止服务
+    systemctl stop smtp-tunnel 2>/dev/null || true
+    systemctl disable smtp-tunnel 2>/dev/null || true
+    
+    # 删除安装的文件
+    rm -rf "$INSTALL_DIR"
+    rm -rf "$CONFIG_DIR"
+    rm -rf "$LOG_DIR"
+    rm -f "/etc/systemd/system/smtp-tunnel.service"
+    rm -f "/etc/logrotate.d/smtp-tunnel"
+    rm -f /usr/local/bin/smtp-tunnel-adduser
+    rm -f /usr/local/bin/smtp-tunnel-deluser
+    rm -f /usr/local/bin/smtp-tunnel-listusers
+    rm -f /usr/local/bin/smtp-tunnel-update
+    
+    log_info "回滚完成"
+    log_warn "请重新运行安装脚本"
 }
 
 # 主安装流程
@@ -799,6 +882,80 @@ main() {
     install_systemd_service
     install_logrotate
     create_uninstall_script
+    
+    # 验证安装
+    if ! verify_installation; then
+        print_error "安装验证失败，正在回滚..."
+        rollback_installation
+        exit 1
+    fi
+    
+    interactive_setup
+    print_summary
+}
+
+# 运行主函数
+main() {
+    # 解析命令行参数
+    SKIP_VERIFICATION=false
+    ROLLBACK=false
+    
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --skip-verification)
+                SKIP_VERIFICATION=true
+                shift
+                ;;
+            --rollback)
+                ROLLBACK=true
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    echo ""
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}  SMTP 隧道代理安装程序${NC}"
+    echo -e "${GREEN} 版本 1.3.0${NC}"
+    echo -e "${GREEN}========================================${NC}"
+    echo ""
+    
+    # 如果是回滚模式
+    if [ "$ROLLBACK" = true ]; then
+        rollback_installation
+        exit 0
+    fi
+    
+    check_root
+    detect_os
+    install_dependencies
+    create_directories
+    setup_log_directory
+    install_files
+    
+    # 创建和配置 Python 虚拟环境
+    create_venv
+    activate_venv
+    install_python_packages
+    verify_venv
+    
+    install_systemd_service
+    install_logrotate
+    create_uninstall_script
+    
+    # 跳过验证（如果指定了 --skip-verification）
+    if [ "$SKIP_VERIFICATION" = false ]; then
+        if ! verify_installation; then
+            print_error "安装验证失败，正在回滚..."
+            rollback_installation
+            exit 1
+        fi
+    fi
+    
     interactive_setup
     print_summary
 }

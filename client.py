@@ -69,8 +69,8 @@ import argparse
 import sys
 
 from common import load_config, ClientConfig
-from client_tunnel import TunnelClient
-from client_server import SOCKS5Server
+from tunnel.client import TunnelClient
+from socks5_server import SOCKS5Server
 
 logging.basicConfig(
     level=logging.INFO,

@@ -33,9 +33,10 @@ def find_project_root() -> str:
     # 检查常见的项目文件（包括拆分后的模块）
     project_files = [
         'server.py', 'client.py', 'common.py', 'requirements.txt',
-        'protocol.py', 'crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
-        'client_protocol.py', 'client_socks5.py', 'client_tunnel.py', 'client_server.py',
-        'server_protocol.py', 'server_connection.py', 'server_tunnel.py', 'server_server.py'
+        'protocol.py', 'tunnel/crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
+        'socks5_server.py',
+        'server_connection.py', 'tunnel/server.py',
+        'tunnel/__init__.py', 'tunnel/base.py', 'tunnel/client.py', 'tunnel/session.py'
     ]
     
     for root in possible_roots:
@@ -63,15 +64,18 @@ def find_required_files(base_dir: str) -> dict:
         'ca.crt': 'ca.crt',
         # 从 common.py 拆分出的模块
         'protocol.py': 'protocol.py',
-        'crypto.py': 'crypto.py',
+        'tunnel/crypto.py': 'tunnel/crypto.py',
         'traffic.py': 'traffic.py',
         'smtp_message.py': 'smtp_message.py',
         'config.py': 'config.py',
         # 从 client.py 拆分出的模块
-        'client_protocol.py': 'client_protocol.py',
-        'client_socks5.py': 'client_socks5.py',
-        'client_tunnel.py': 'client_tunnel.py',
-        'client_server.py': 'client_server.py',
+        'socks5_server.py': 'socks5_server.py',
+        # tunnel 模块
+        'tunnel/__init__.py': 'tunnel/__init__.py',
+        'tunnel/base.py': 'tunnel/base.py',
+        'tunnel/client.py': 'tunnel/client.py',
+        'tunnel/session.py': 'tunnel/session.py',
+        'tunnel/server.py': 'tunnel/server.py',
     }
     
     found_files = {}
@@ -141,9 +145,11 @@ def create_client_package(
         # 主入口文件
         'client.py', 'common.py',
         # 从 common.py 拆分出的模块
-        'protocol.py', 'crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
+        'protocol.py', 'tunnel/crypto.py', 'traffic.py', 'smtp_message.py', 'config.py',
         # 从 client.py 拆分出的模块
-        'client_protocol.py', 'client_socks5.py', 'client_tunnel.py', 'client_server.py',
+        'socks5_server.py',
+        # tunnel 模块
+        'tunnel/__init__.py', 'tunnel/base.py', 'tunnel/client.py',
         'requirements.txt'
     ]
     
@@ -203,10 +209,8 @@ def create_client_package(
 - config.py      - 配置管理
 
 ### 客户端模块
-- client_protocol.py - 客户端协议定义
-- client_socks5.py   - SOCKS5 代理实现
-- client_tunnel.py   - 隧道客户端
-- client_server.py   - SOCKS5 服务器
+- socks5_server.py   - SOCKS5 服务器
+- tunnel/           - 隧道模块（包含客户端和服务器共享功能）
 
 ### 配置文件
 - config.yaml    - 您的配置文件（已预配置）

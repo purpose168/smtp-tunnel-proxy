@@ -12,7 +12,7 @@ SMTP 隧道服务器模块 - 服务器生命周期管理
 - ssl: SSL/TLS 加密
 - logging: 日志记录
 - config: ServerConfig, UserConfig 配置类
-- server_tunnel: TunnelSession 隧道会话类
+- tunnel.session: TunnelSession 隧道会话类
 
 使用示例:
     >>> config = ServerConfig(host='0.0.0.0', port=587, hostname='mail.example.com')
@@ -27,7 +27,7 @@ import logging
 from typing import Dict
 
 from config import ServerConfig, UserConfig
-from server_tunnel import TunnelSession
+from tunnel.session import TunnelSession
 
 logger = logging.getLogger(__name__)
 
