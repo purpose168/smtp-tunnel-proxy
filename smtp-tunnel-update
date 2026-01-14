@@ -270,7 +270,7 @@ restart_service() {
             log_message "INFO" "服务重启成功"
         else
             print_warn "服务可能未正常启动"
-            log_log "WARN" "服务状态检查失败"
+            log_message "WARN" "服务状态检查失败"
         fi
     else
         print_error "服务重启失败"
