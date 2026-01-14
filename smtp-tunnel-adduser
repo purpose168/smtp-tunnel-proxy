@@ -200,13 +200,33 @@ def create_client_package(
 
 ## 快速开始
 
-1. 安装依赖:
+### 方法 1：使用启动脚本（推荐）
+
+Windows: 双击 start.bat
+Linux/Mac: 运行 ./start.sh
+
+启动脚本会自动：
+1. 创建 Python 虚拟环境（如果不存在）
+2. 激活虚拟环境
+3. 安装所需的依赖包
+4. 启动客户端
+
+### 方法 2：手动安装
+
+1. 创建虚拟环境:
+   python3 -m venv venv
+
+2. 激活虚拟环境:
+   Windows: venv\\Scripts\\activate
+   Linux/Mac: source venv/bin/activate
+
+3. 安装依赖:
    pip install -r requirements.txt
 
-2. 运行客户端:
+4. 运行客户端:
    python client.py
 
-3. 配置浏览器/应用程序使用 SOCKS5 代理:
+5. 配置浏览器/应用程序使用 SOCKS5 代理:
    主机: 127.0.0.1
    端口: 1080
 
@@ -231,6 +251,44 @@ def create_client_package(
 - config.yaml    - 您的配置文件（已预配置）
 - ca.crt         - 用于验证的服务器证书
 - requirements.txt - Python 依赖列表
+
+## 虚拟环境
+
+本客户端使用 Python 虚拟环境来隔离依赖，避免与系统 Python 环境冲突。
+
+### 虚拟环境目录
+- Windows: venv\\
+- Linux/Mac: venv/
+
+### 手动管理虚拟环境
+
+创建虚拟环境:
+```bash
+python3 -m venv venv
+```
+
+激活虚拟环境:
+```bash
+# Windows
+venv\\Scripts\\activate
+
+# Linux/Mac
+source venv/bin/activate
+```
+
+退出虚拟环境:
+```bash
+deactivate
+```
+
+删除虚拟环境:
+```bash
+# Windows
+rmdir /s /q venv
+
+# Linux/Mac
+rm -rf venv
+```
 
 ## 测试连接
 
@@ -279,12 +337,29 @@ if %errorlevel% neq 0 (
 
 echo [信息] 找到 Python: %PYTHON%
 
+:: 检查虚拟环境是否存在
+if not exist "venv" (
+    echo [信息] 正在创建 Python 虚拟环境...
+    %PYTHON% -m venv venv
+    if %errorlevel% neq 0 (
+        echo [错误] 虚拟环境创建失败
+        pause
+        exit /b 1
+    )
+    echo [信息] 虚拟环境创建完成
+) else (
+    echo [信息] 使用现有虚拟环境
+)
+
+:: 激活虚拟环境
+call venv\\Scripts\\activate.bat
+
 :: 检查/安装依赖
 echo [信息] 检查依赖项...
-%PYTHON% -c "import yaml" >nul 2>&1
+python -c "import yaml, cryptography" >nul 2>&1
 if %errorlevel% neq 0 (
     echo [信息] 正在安装依赖项...
-    %PYTHON% -m pip install -r requirements.txt --quiet
+    python -m pip install -r requirements.txt --quiet
     if %errorlevel% neq 0 (
         echo [错误] 依赖项安装失败
         pause
@@ -301,7 +376,7 @@ echo 按 Ctrl+C 停止
 echo ─────────────────────────────────────────────────────────────
 echo.
 
-%PYTHON% client.py
+python client.py
 
 echo.
 echo 连接已关闭。
@@ -355,14 +430,33 @@ fi
 
 echo -e "${{GREEN}}[信息]${{NC}} 找到 Python: $PYTHON"
 
+# 检查虚拟环境是否存在
+if [ ! -d "venv" ]; then
+    echo -e "${{YELLOW}}[信息]${{NC}} 正在创建 Python 虚拟环境..."
+    $PYTHON -m venv venv
+    if [ $? -ne 0 ]; then
+        echo -e "${{RED}}[错误]${{NC}} 虚拟环境创建失败"
+        echo "请确保已安装 python3-venv:"
+        echo "  Ubuntu/Debian: sudo apt install python3-venv"
+        echo "  CentOS/RHEL: sudo yum install python3-virtualenv"
+        exit 1
+    fi
+    echo -e "${{GREEN}}[信息]${{NC}} 虚拟环境创建完成"
+else
+    echo -e "${{GREEN}}[信息]${{NC}} 使用现有虚拟环境"
+fi
+
+# 激活虚拟环境
+source venv/bin/activate
+
 # 检查/安装依赖
 echo -e "${{GREEN}}[信息]${{NC}} 检查依赖项..."
-if ! $PYTHON -c "import yaml" &> /dev/null; then
+if ! python -c "import yaml, cryptography" &> /dev/null; then
     echo -e "${{YELLOW}}[信息]${{NC}} 正在安装依赖项..."
-    $PYTHON -m pip install -r requirements.txt --quiet
+    python -m pip install -r requirements.txt --quiet
     if [ $? -ne 0 ]; then
         echo -e "${{RED}}[错误]${{NC}} 依赖项安装失败"
-        echo "请尝试运行: $PYTHON -m pip install -r requirements.txt"
+        echo "请尝试运行: python -m pip install -r requirements.txt"
         exit 1
     fi
     echo -e "${{GREEN}}[信息]${{NC}} 依赖项安装完成"
@@ -376,7 +470,7 @@ echo -e "按 ${{YELLOW}}Ctrl+C${{NC}} 停止"
 echo "─────────────────────────────────────────────────────────────"
 echo ""
 
-$PYTHON client.py
+python client.py
 
 echo ""
 echo -e "${{YELLOW}}连接已关闭。${{NC}}"
