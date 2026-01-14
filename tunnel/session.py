@@ -11,12 +11,6 @@ import socket
 import struct
 from typing import Dict, Optional
 
-from common import (
-    TunnelCrypto,
-    ServerConfig,
-    UserConfig,
-    IPWhitelist
-)
 from protocol import (
     FRAME_DATA,
     FRAME_CONNECT,
@@ -58,13 +52,13 @@ class TunnelSession(BaseTunnel):
     - 可选的日志记录（每用户配置）
     
     Attributes:
-        config: ServerConfig，服务器配置对象
+        config: 服务器配置对象
         ssl_context: ssl.SSLContext，SSL/TLS 上下文
-        users: Dict[str, UserConfig]，用户配置字典
+        users: 用户配置字典
         authenticated: bool，认证状态标志
         binary_mode: bool，二进制模式标志
         username: Optional[str]，已认证的用户名
-        user_config: Optional[UserConfig]，已认证用户的配置
+        user_config: 已认证用户的配置
         client_ip: str，客户端 IP 地址
         peer_str: str，客户端地址字符串（IP:端口）
         connect_stats: dict，连接统计信息
@@ -74,9 +68,9 @@ class TunnelSession(BaseTunnel):
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
-        config: ServerConfig,
+        config,
         ssl_context,
-        users: Dict[str, UserConfig]
+        users
     ):
         """
         初始化隧道会话
@@ -98,7 +92,7 @@ class TunnelSession(BaseTunnel):
         
         # 用户信息（认证后设置）
         self.username: Optional[str] = None
-        self.user_config: Optional[UserConfig] = None
+        self.user_config = None
         
         # 从连接中提取客户端地址信息
         peer = writer.get_extra_info('peername')
@@ -225,6 +219,7 @@ class TunnelSession(BaseTunnel):
             token = parts[2]
             
             # 多用户认证 - 验证令牌并获取用户名
+            from tunnel.crypto import TunnelCrypto
             valid, username = TunnelCrypto.verify_auth_token_multi_user(token, self.users)
             
             if not valid or not username:
@@ -238,6 +233,7 @@ class TunnelSession(BaseTunnel):
             
             # 检查每用户 IP 白名单
             if self.user_config and self.user_config.whitelist:
+                from common import IPWhitelist
                 user_whitelist = IPWhitelist(self.user_config.whitelist)
                 if not user_whitelist.is_allowed(self.client_ip):
                     logger.warning(f"用户 {username} 不允许从 IP {self.client_ip} 连接")

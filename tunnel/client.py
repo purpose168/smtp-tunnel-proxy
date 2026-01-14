@@ -13,7 +13,6 @@ import time
 import os
 from typing import Dict, Optional, Tuple
 
-from common import TunnelCrypto, ClientConfig
 from protocol import (
     FRAME_DATA, FRAME_CONNECT, FRAME_CONNECT_OK,
     FRAME_CONNECT_FAIL, FRAME_CLOSE, FRAME_HEADER_SIZE,
@@ -51,7 +50,7 @@ class TunnelClient(BaseTunnel):
         receiver_task: 后台接收任务，负责从服务器接收帧
     """
     
-    def __init__(self, config: ClientConfig, ca_cert: str = None):
+    def __init__(self, config, ca_cert: str = None):
         """
         初始化隧道客户端
         
@@ -142,6 +141,7 @@ class TunnelClient(BaseTunnel):
                 return False
     
             timestamp = int(time.time())
+            from tunnel.crypto import TunnelCrypto
             crypto = TunnelCrypto(self.config.secret, is_server=False)
             token = crypto.generate_auth_token(timestamp, self.config.username)
     
