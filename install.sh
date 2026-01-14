@@ -31,7 +31,7 @@ LOG_FILE="$LOG_DIR/install.log"
 
 # 需要下载的 Python 文件
 # 主入口文件
-MAIN_FILES="server.py client.py common.py generate_certs.py"
+MAIN_FILES="server.py client.py common.py generate_certs.py connection.py"
 
 # 从 common.py 拆分出的模块
 COMMON_MODULES="protocol/__init__.py protocol/core.py protocol/client.py protocol/server.py tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/session.py traffic.py smtp_message.py config.py logger.py"
