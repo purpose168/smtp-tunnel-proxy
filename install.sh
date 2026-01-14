@@ -34,7 +34,7 @@ LOG_FILE="$LOG_DIR/install.log"
 MAIN_FILES="server.py client.py common.py generate_certs.py"
 
 # 从 common.py 拆分出的模块
-COMMON_MODULES="protocol.py tunnel/crypto.py traffic.py smtp_message.py config.py logger.py"
+COMMON_MODULES="protocol/ tunnel/crypto.py traffic.py smtp_message.py config.py logger.py"
 
 # 从 client.py 拆分出的模块
 CLIENT_MODULES="socks5_server.py tunnel/"
@@ -73,9 +73,7 @@ log_step() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [STEP] $message" >> "$LOG_FILE"
 }
 
-# 打印信息函数（已废弃，请使用 log_info）
-# 注意：log_info() 函数已在前面定义（第 52-56 行）
-# 保留 print_info() 函数以兼容旧代码
+
 print_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -224,14 +222,43 @@ download_file() {
     local filename=$1
     local destination=$2
     local url="$GITHUB_RAW/$filename"
-
-    if curl -sSL -f "$url" -o "$destination" 2>/dev/null; then
-        print_info "  已下载: $filename"
-        return 0
-    else
-        print_error "  下载失败: $filename"
-        return 1
+    
+    log_step "正在下载: $filename"
+    log_info "URL: $url"
+    log_info "目标: $destination"
+    
+    # 先删除目标文件（如果存在）
+    if [ -f "$destination" ]; then
+        log_warn "目标文件已存在，正在删除: $destination"
+        rm -f "$destination"
     fi
+    
+    # 创建目标目录（如果不存在）
+    local dest_dir=$(dirname "$destination")
+    if [ ! -d "$dest_dir" ]; then
+        log_info "创建目标目录: $dest_dir"
+        mkdir -p "$dest_dir"
+    fi
+    
+    # 尝试下载文件
+    local retry_count=0
+    local max_retries=3
+    
+    while [ $retry_count -lt $max_retries ]; do
+        if curl -sSL -f "$url" -o "$destination" 2>/dev/null; then
+            log_info "  已下载: $filename"
+            return 0
+        else
+            retry_count=$((retry_count + 1))
+            log_warn "  下载失败，重试 $retry_count/$max_retries..."
+            sleep 2
+        fi
+    done
+    
+    log_error "  下载失败: $filename（已重试 $max_retries 次）"
+    log_error "  URL: $url"
+    log_error "  请检查网络连接或文件是否存在"
+    return 1
 }
 
 # 下载并安装文件
