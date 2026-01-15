@@ -3,7 +3,7 @@
 为 SMTP 隧道生成自签名 TLS 证书。
 创建模拟真实邮件服务器的服务器证书。
 
-版本: 1.3.0
+版本:1.3.0
 
 功能概述:
 本脚本用于生成自签名 TLS 证书，用于 SMTP 隧道代理系统的加密通信。
@@ -32,6 +32,7 @@
 import os           # 用于文件和目录操作
 import sys          # 用于系统相关功能
 import argparse     # 用于命令行参数解析
+import logging       # 用于日志记录
 from datetime import datetime, timedelta, timezone  # 用于日期时间处理
 
 # 加密库导入
@@ -41,6 +42,14 @@ from cryptography.hazmat.primitives import hashes               # 用于哈希�
 from cryptography.hazmat.primitives.asymmetric import rsa       # 用于 RSA 密钥生成
 from cryptography.hazmat.primitives import serialization        # 用于密钥和证书序列化
 from cryptography.hazmat.backends import default_backend        # 用于加密后端
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger('generate-certs')
 
 
 def generate_private_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
@@ -74,11 +83,14 @@ def generate_private_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
         # 生成 4096 位密钥（更高安全性）
         key = generate_private_key(4096)
     """
-    return rsa.generate_private_key(
+    logger.info(f"生成 RSA 私钥: key_size={key_size} 位")
+    key = rsa.generate_private_key(
         public_exponent=65537,  # 使用标准的公钥指数 65537 (F4)
         key_size=key_size,
         backend=default_backend(),
     )
+    logger.info(f"RSA 私钥生成完成")
+    return key
 
 
 def generate_ca_certificate(
@@ -122,6 +134,8 @@ def generate_ca_certificate(
         # 生成 CA 证书（10 年有效期）
         ca_cert = generate_ca_certificate(ca_key, days_valid=3650)
     """
+    logger.info(f"生成 CA 证书: common_name={common_name}, days_valid={days_valid}")
+    
     # 证书主题（Subject）和颁发者（Issuer）- 自签名证书两者相同
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),                     # 国家代码
@@ -130,7 +144,9 @@ def generate_ca_certificate(
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SMTP Tunnel"),       # 组织名称 
         x509.NameAttribute(NameOID.COMMON_NAME, common_name),               # 通用名称
     ])
-
+    
+    logger.debug(f"CA 证书主题: {common_name}")
+    
     # 构建证书
     cert = (
         x509.CertificateBuilder()
@@ -164,7 +180,8 @@ def generate_ca_certificate(
         )
         .sign(private_key, hashes.SHA256(), default_backend())  # 使用 SHA256 签名
     )
-
+    
+    logger.info(f"CA 证书生成完成: serial_number={cert.serial_number}")
     return cert
 
 
@@ -218,6 +235,8 @@ def generate_server_certificate(
             days_valid=1095
         )
     """
+    logger.info(f"生成服务器证书: hostname={hostname}, days_valid={days_valid}")
+    
     # 服务器证书主题
     subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),                         # 国家代码
@@ -226,7 +245,9 @@ def generate_server_certificate(
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Example Mail Services"), # 组织名称
         x509.NameAttribute(NameOID.COMMON_NAME, hostname),                      # 通用名称（主机名）
     ])
-
+    
+    logger.debug(f"服务器证书主题: {hostname}")
+    
     # 主题备用名称（Subject Alternative Name, SAN）
     # SAN 对 TLS 验证非常重要，允许证书用于多个主机名
     san = x509.SubjectAlternativeName([
@@ -234,7 +255,9 @@ def generate_server_certificate(
         x509.DNSName(f"smtp.{hostname.split('.', 1)[-1] if '.' in hostname else hostname}"),  # smtp.域名
         x509.DNSName("localhost"),  # 本地主机（用于测试）
     ])
-
+    
+    logger.debug(f"服务器证书 SAN: {[hostname, f'smtp.{hostname.split('.', 1)[-1] if '.' in hostname else hostname}', 'localhost']}")
+    
     # 构建服务器证书
     cert = (
         x509.CertificateBuilder()
@@ -276,7 +299,8 @@ def generate_server_certificate(
         )
         .sign(ca_key, hashes.SHA256(), default_backend())  # 使用 CA 的私钥和 SHA256 签名
     )
-
+    
+    logger.info(f"服务器证书生成完成: serial_number={cert.serial_number}")
     return cert
 
 
@@ -324,30 +348,40 @@ def save_private_key(key: rsa.RSAPrivateKey, path: str, password: bytes = None):
         - 私钥文件应设置为仅所有者可读（0o600）
         - 不要将私钥提交到版本控制系统
     """
+    logger.info(f"保存私钥到文件: {path}")
+    logger.debug(f"私钥加密: {'是' if password else '否'}")
+    
     # 根据是否提供密码选择加密算法
     encryption = (
         serialization.BestAvailableEncryption(password)  # 使用最佳可用加密
         if password
         else serialization.NoEncryption()  # 不加密
     )
-
+    
     # 将私钥序列化为 PEM 格式
     pem = key.private_bytes(
         encoding=serialization.Encoding.PEM,  # PEM 编码
         format=serialization.PrivateFormat.TraditionalOpenSSL,  # 传统 OpenSSL 格式
         encryption_algorithm=encryption,  # 加密算法
     )
-
+    
     # 写入文件
-    with open(path, 'wb') as f:
-        f.write(pem)
-
+    try:
+        with open(path, 'wb') as f:
+            f.write(pem)
+        logger.info(f"私钥保存成功: {path}")
+    except Exception as e:
+        logger.error(f"私钥保存失败: {path}, error={e}")
+        raise
+    
     # 设置安全的文件权限（仅所有者可读）
     # Unix/Linux: 0o600 = rw------- (仅所有者可读写)
     # Windows: chmod 不支持，跳过
     try:
         os.chmod(path, 0o600)
+        logger.debug(f"文件权限已设置: {path}, 0o600")
     except (OSError, AttributeError):
+        logger.debug(f"跳过文件权限设置（Windows 或不支持 chmod）: {path}")
         pass  # Windows 不以相同方式支持 chmod
 
 
@@ -402,12 +436,19 @@ def save_certificate(cert: x509.Certificate, path: str):
         - CA 证书需要分发给客户端以验证服务器证书
         - 服务器证书和私钥需要部署在服务器上
     """
+    logger.info(f"保存证书到文件: {path}")
+    
     # 将证书序列化为 PEM 格式
     pem = cert.public_bytes(serialization.Encoding.PEM)
-
+    
     # 写入文件
-    with open(path, 'wb') as f:
-        f.write(pem)
+    try:
+        with open(path, 'wb') as f:
+            f.write(pem)
+        logger.info(f"证书保存成功: {path}")
+    except Exception as e:
+        logger.error(f"证书保存失败: {path}, error={e}")
+        raise
 
 
 def main():
@@ -493,62 +534,70 @@ def main():
 
     # 解析命令行参数
     args = parser.parse_args()
-
+    
     # 如需要，创建输出目录
     os.makedirs(args.output_dir, exist_ok=True)
-
+    logger.info(f"输出目录: {args.output_dir}")
+    
     # 打印配置信息
     print(f"为主机名生成证书: {args.hostname}")
     print(f"密钥大小: {args.key_size} 位")
     print(f"有效期: {args.days} 天")
     print()
-
+    
     # ========== 生成 CA 证书 ==========
     print("正在生成 CA 私钥...")
+    logger.debug("开始生成 CA 私钥")
     ca_key = generate_private_key(args.key_size)
-
+    
     print("正在生成 CA 证书...")
+    logger.debug("开始生成 CA 证书")
     # CA 证书有效期是服务器证书的 10 倍（减少 CA 证书更新频率）
     ca_cert = generate_ca_certificate(ca_key, days_valid=args.days * 10)
-
+    
     # ========== 生成服务器证书 ==========
     print("正在生成服务器私钥...")
+    logger.debug("开始生成服务器私钥")
     server_key = generate_private_key(args.key_size)
-
+    
     print("正在生成服务器证书...")
+    logger.debug("开始生成服务器证书")
     server_cert = generate_server_certificate(
         ca_key, ca_cert, server_key,
         hostname=args.hostname,
         days_valid=args.days
     )
-
+    
     # ========== 保存文件 ==========
     # 构建文件路径
     ca_key_path = os.path.join(args.output_dir, 'ca.key')
     ca_cert_path = os.path.join(args.output_dir, 'ca.crt')
     server_key_path = os.path.join(args.output_dir, 'server.key')
     server_cert_path = os.path.join(args.output_dir, 'server.crt')
-
+    
     print()
     print("正在保存文件...")
-
+    logger.debug("开始保存文件到磁盘")
+    
     # 保存 CA 文件
     save_private_key(ca_key, ca_key_path)
     print(f"  CA 私钥:            {ca_key_path}")
-
+    
     save_certificate(ca_cert, ca_cert_path)
     print(f"  CA 证书:            {ca_cert_path}")
-
+    
     # 保存服务器文件
     save_private_key(server_key, server_key_path)
     print(f"  服务器私钥:        {server_key_path}")
-
+    
     save_certificate(server_cert, server_cert_path)
     print(f"  服务器证书:        {server_cert_path}")
-
+    
     # ========== 打印使用说明 ==========
     print()
     print("证书生成完成！")
+    logger.info("证书生成完成")
+    
     print()
     print("对于服务器，您需要:")
     print(f"  - {server_cert_path}")
@@ -558,6 +607,7 @@ def main():
     print(f"  - {ca_cert_path}")
     print()
     print("或在客户端配置中禁用证书验证（不太安全）。")
+    logger.info(f"所有文件已保存到: {args.output_dir}")
 
 
 if __name__ == '__main__':

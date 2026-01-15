@@ -13,8 +13,9 @@ import logging
 
 from connection import SOCKS5, Channel
 from tunnel.client import TunnelClient
+from tunnel.crypto import TunnelCrypto
 
-logger = logging.getLogger('smtp-tunnel-client')
+logger = logging.getLogger('smtp-tunnel-socks5-server')
 
 
 class SOCKS5Server:
@@ -38,6 +39,7 @@ class SOCKS5Server:
     """
 
     def __init__(self, tunnel: TunnelClient, host: str = '127.0.0.1', port: int = 1080):
+        logger.info(f"初始化 SOCKS5 服务器: host={host}, port={port}")
         self.tunnel = tunnel
         self.host = host
         self.port = port
@@ -144,18 +146,24 @@ class SOCKS5Server:
         Args:
             channel: 通道对象，包含 SOCKS 客户端的读写流
         """
+        logger.debug(f"启动数据转发循环: channel_id={channel.channel_id}")
+        
         try:
             while channel.connected and self.tunnel.connected:
                 try:
                     data = await asyncio.wait_for(channel.reader.read(32768), timeout=0.1)
                     if data:
+                        logger.debug(f"从 SOCKS5 客户端读取数据: channel_id={channel.channel_id}, len={len(data)}")
                         await self.tunnel.send_data(channel.channel_id, data)
                     elif data == b'':
+                        logger.debug(f"SOCKS5 客户端关闭连接: channel_id={channel.channel_id}")
                         break
                 except asyncio.TimeoutError:
                     continue
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"数据转发循环错误: channel_id={channel.channel_id}, error={e}")
+        finally:
+            logger.debug(f"数据转发循环结束: channel_id={channel.channel_id}")
 
     async def start(self):
         """

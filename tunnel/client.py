@@ -86,21 +86,28 @@ class TunnelClient(BaseTunnel):
         """
         try:
             logger.info(f"正在连接到 {self.config.server_host}:{self.config.server_port}")
+            logger.debug(f"连接配置: username={self.config.username}, ca_cert={self.ca_cert}")
     
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self.config.server_host, self.config.server_port),
                 timeout=30.0
             )
+            
+            logger.info(f"TCP 连接建立成功: {self.config.server_host}:{self.config.server_port}")
     
             self.set_reader_writer(reader, writer)
     
             if not await self.smtp_handshake():
+                logger.error("SMTP 握手失败")
                 return False
     
             self.connected = True
             logger.info("已连接 - 二进制模式激活")
             return True
     
+        except asyncio.TimeoutError:
+            logger.error(f"连接超时: {self.config.server_host}:{self.config.server_port}")
+            return False
         except Exception as e:
             logger.error(f"连接失败: {e}")
             return False
@@ -121,42 +128,60 @@ class TunnelClient(BaseTunnel):
             bool: 握手成功返回 True，失败返回 False
         """
         try:
+            logger.debug("等待服务器 220 问候响应...")
             line = await self.read_smtp_line()
             if not line or not line.startswith('220'):
+                logger.error(f"未收到 220 响应，收到: {line}")
                 return False
+            logger.debug(f"收到 220 响应: {line}")
     
+            logger.debug("发送 EHLO 命令...")
             await self.send_smtp_line("EHLO tunnel-client.local")
             if not await self.expect_250():
+                logger.error("EHLO 命令失败")
                 return False
     
+            logger.debug("发送 STARTTLS 命令...")
             await self.send_smtp_line("STARTTLS")
             line = await self.read_smtp_line()
             if not line or not line.startswith('220'):
+                logger.error(f"STARTTLS 失败，收到: {line}")
                 return False
+            logger.debug(f"收到 STARTTLS 响应: {line}")
     
+            logger.debug("升级到 TLS 连接...")
             await self._upgrade_tls_client()
     
+            logger.debug("在 TLS 通道上发送 EHLO 命令...")
             await self.send_smtp_line("EHLO tunnel-client.local")
             if not await self.expect_250():
+                logger.error("TLS 通道上的 EHLO 命令失败")
                 return False
     
             timestamp = int(time.time())
             from tunnel.crypto import TunnelCrypto
             crypto = TunnelCrypto(self.config.secret, is_server=False)
             token = crypto.generate_auth_token(timestamp, self.config.username)
+            
+            logger.debug(f"生成认证令牌: timestamp={timestamp}, username={self.config.username}")
     
+            logger.debug("发送 AUTH PLAIN 命令...")
             await self.send_smtp_line(f"AUTH PLAIN {token}")
             line = await self.read_smtp_line()
             if not line or not line.startswith('235'):
                 logger.error(f"认证失败: {line}")
                 return False
+            logger.debug(f"收到认证成功响应: {line}")
     
+            logger.debug("发送 BINARY 命令...")
             await self.send_smtp_line("BINARY")
             line = await self.read_smtp_line()
             if not line or not line.startswith('299'):
                 logger.error(f"二进制模式失败: {line}")
                 return False
+            logger.debug(f"收到 BINARY 响应: {line}")
     
+            logger.info("SMTP 握手成功，切换到二进制模式")
             return True
     
         except Exception as e:
@@ -188,6 +213,7 @@ class TunnelClient(BaseTunnel):
         创建并启动一个后台任务，持续从服务器接收帧并分发处理。
         该任务在连接建立后启动，在连接断开时自动结束。
         """
+        logger.info("启动后台接收任务...")
         self.receiver_task = asyncio.create_task(self._receiver_loop())
     
     async def _receiver_loop(self):
@@ -203,8 +229,10 @@ class TunnelClient(BaseTunnel):
         
         超时设置: 300 秒无数据则继续等待（保持连接活跃）
         """
+        logger.debug("进入接收循环...")
         await self.binary_mode_loop(timeout=300.0)
         self.connected = False
+        logger.info("接收循环已退出，连接已断开")
     
     async def process_frame(self, frame_type: int, channel_id: int, payload: bytes):
         """
@@ -221,12 +249,17 @@ class TunnelClient(BaseTunnel):
             channel_id: 通道标识符
             payload: 帧载荷数据
         """
+        frame_type_name = self._get_frame_type_name(frame_type)
+        logger.debug(f"处理帧: type={frame_type_name}({frame_type}), channel_id={channel_id}, payload_len={len(payload)}")
+        
         if frame_type == FRAME_CONNECT_OK:
+            logger.debug(f"通道 {channel_id} 连接成功")
             if channel_id in self.connect_events:
                 self.connect_results[channel_id] = True
                 self.connect_events[channel_id].set()
     
         elif frame_type == FRAME_CONNECT_FAIL:
+            logger.warning(f"通道 {channel_id} 连接失败")
             if channel_id in self.connect_events:
                 self.connect_results[channel_id] = False
                 self.connect_events[channel_id].set()
@@ -237,10 +270,15 @@ class TunnelClient(BaseTunnel):
                 try:
                     channel.writer.write(payload)
                     await channel.writer.drain()
-                except:
+                    logger.debug(f"通道 {channel_id} 转发数据: {len(payload)} 字节")
+                except Exception as e:
+                    logger.error(f"通道 {channel_id} 转发数据失败: {e}")
                     await self.close_channel(channel)
+            else:
+                logger.warning(f"通道 {channel_id} 不存在或未连接")
     
         elif frame_type == FRAME_CLOSE:
+            logger.debug(f"收到关闭帧: channel_id={channel_id}")
             channel = self.channels.get(channel_id)
             if channel:
                 await self.close_channel(channel)
@@ -260,11 +298,13 @@ class TunnelClient(BaseTunnel):
             Tuple[int, bool]: (通道ID, 连接是否成功)
         """
         if not self.connected:
+            logger.warning("尝试打开通道，但隧道未连接")
             return 0, False
     
         async with self.channel_lock:
             channel_id = self.next_channel_id
             self.next_channel_id += 1
+            logger.debug(f"分配通道 ID: {channel_id}")
     
         event = asyncio.Event()
         self.connect_events[channel_id] = event
@@ -272,18 +312,27 @@ class TunnelClient(BaseTunnel):
     
         try:
             payload = make_connect_payload(host, port)
+            logger.debug(f"发送连接请求: channel_id={channel_id}, host={host}, port={port}")
             await self.send_frame(FRAME_CONNECT, channel_id, payload)
-        except Exception:
+        except Exception as e:
+            logger.error(f"发送连接请求失败: channel_id={channel_id}, error={e}")
             return channel_id, False
     
         try:
+            logger.debug(f"等待通道 {channel_id} 连接结果...")
             await asyncio.wait_for(event.wait(), timeout=30.0)
             success = self.connect_results.get(channel_id, False)
         except asyncio.TimeoutError:
+            logger.warning(f"通道 {channel_id} 连接超时（30秒）")
             success = False
     
         self.connect_events.pop(channel_id, None)
         self.connect_results.pop(channel_id, None)
+    
+        if success:
+            logger.info(f"通道 {channel_id} 打开成功: {host}:{port}")
+        else:
+            logger.warning(f"通道 {channel_id} 打开失败: {host}:{port}")
     
         return channel_id, success
     
@@ -297,6 +346,7 @@ class TunnelClient(BaseTunnel):
             channel_id: 通道标识符
             data: 要发送的数据
         """
+        logger.debug(f"发送数据到通道 {channel_id}: {len(data)} 字节")
         await self.send_frame(FRAME_DATA, channel_id, data)
     
     async def close_channel_remote(self, channel_id: int):
@@ -308,6 +358,7 @@ class TunnelClient(BaseTunnel):
         Args:
             channel_id: 要关闭的通道标识符
         """
+        logger.debug(f"发送远程关闭请求: channel_id={channel_id}")
         await self.send_frame(FRAME_CLOSE, channel_id)
     
     async def close_channel(self, channel: Channel):
@@ -320,16 +371,20 @@ class TunnelClient(BaseTunnel):
             channel: 要关闭的通道对象
         """
         if not channel.connected:
+            logger.debug(f"通道 {channel.channel_id} 已关闭，跳过")
             return
         channel.connected = False
     
+        logger.debug(f"关闭本地通道: channel_id={channel.channel_id}")
         try:
             channel.writer.close()
             await channel.writer.wait_closed()
-        except:
-            pass
+            logger.debug(f"通道 {channel.channel_id} 本地连接已关闭")
+        except Exception as e:
+            logger.error(f"关闭通道 {channel.channel_id} 失败: {e}")
     
         self.channels.pop(channel.channel_id, None)
+        logger.debug(f"通道 {channel.channel_id} 已从字典中移除")
     
     async def cleanup(self):
         """
@@ -340,17 +395,23 @@ class TunnelClient(BaseTunnel):
         2. 关闭与服务器的连接
         3. 清理所有字典和任务引用
         """
+        logger.info("开始清理资源...")
         self.connected = False
+        
+        active_channels = len(self.channels)
+        logger.debug(f"关闭 {active_channels} 个活跃通道...")
         
         for channel in list(self.channels.values()):
             await self.close_channel(channel)
         
         if self.writer:
             try:
+                logger.debug("关闭与服务器的连接...")
                 self.writer.close()
                 await asyncio.wait_for(self.writer.wait_closed(), timeout=2.0)
-            except:
-                pass
+                logger.info("与服务器的连接已关闭")
+            except Exception as e:
+                logger.error(f"关闭服务器连接失败: {e}")
         
         self.reader = None
         self.writer = None
@@ -358,12 +419,15 @@ class TunnelClient(BaseTunnel):
         self.connect_events.clear()
         self.connect_results.clear()
         
+        logger.info("资源清理完成")
+        
         if self.receiver_task:
+            logger.debug("取消后台接收任务...")
             self.receiver_task.cancel()
             try:
                 await self.receiver_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("后台接收任务已取消")
             self.receiver_task = None
     
     async def disconnect(self):
@@ -375,4 +439,24 @@ class TunnelClient(BaseTunnel):
         2. 关闭与服务器的连接
         3. 清理所有字典和任务引用
         """
+        logger.info("断开与服务器的连接...")
         await self.cleanup()
+    
+    def _get_frame_type_name(self, frame_type: int) -> str:
+        """
+        获取帧类型名称
+        
+        Args:
+            frame_type: 帧类型
+            
+        Returns:
+            str: 帧类型名称
+        """
+        frame_names = {
+            FRAME_DATA: 'DATA',
+            FRAME_CONNECT: 'CONNECT',
+            FRAME_CONNECT_OK: 'CONNECT_OK',
+            FRAME_CONNECT_FAIL: 'CONNECT_FAIL',
+            FRAME_CLOSE: 'CLOSE'
+        }
+        return frame_names.get(frame_type, f'UNKNOWN({frame_type})')

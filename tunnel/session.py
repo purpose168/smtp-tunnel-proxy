@@ -106,6 +106,8 @@ class TunnelSession(BaseTunnel):
             'failed': 0,
             'by_strategy': {}
         }
+        
+        logger.debug(f"初始化隧道会话: peer={self.peer_str}, client_ip={self.client_ip}")
     
     def _log(self, level: int, msg: str):
         """
@@ -132,11 +134,14 @@ class TunnelSession(BaseTunnel):
         主会话处理器 - 处理完整的客户端连接生命周期
         
         此方法是隧道会话的入口点，负责协调整个连接处理流程。
-        它按顺序执行以下阶段:
-        1. SMTP 握手阶段 - 模拟真实 SMTP 服务器行为
+        它按顺序执行以下阶段：
+        1. SMTP 握手阶段 - 模拟真实 SMTP 服务器行为以欺骗 DPI
         2. TLS 升级阶段 - 建立加密连接
-        3. 用户认证阶段 - 验证客户端身份
+        3. 用户认证阶段 - 验证客户端身份（多用户支持）
         4. 二进制模式阶段 - 处理多通道数据转发
+        
+        Returns:
+            None（此方法不返回值）
         """
         logger.info(f"来自 {self.peer_str} 的连接")
         
@@ -145,13 +150,14 @@ class TunnelSession(BaseTunnel):
             if not await self.smtp_handshake():
                 return
             
+            # 阶段 2: TLS 升级后
             self._log(logging.INFO, f"已认证，进入二进制模式: {self.peer_str}")
             
-            # 阶段 2: 二进制流模式
+            # 阶段 3: 二进制流模式
             await self.binary_mode_loop()
             
         except asyncio.CancelledError:
-            pass
+            logger.debug(f"会话被取消: {self.peer_str}")
         except Exception as e:
             self._log(logging.ERROR, f"会话错误: {e}")
         finally:
@@ -169,54 +175,76 @@ class TunnelSession(BaseTunnel):
         Returns:
             bool: True 表示握手成功，False 表示握手失败
         """
+        logger.debug(f"开始 SMTP 握手: peer={self.peer_str}")
+        
         try:
             # 发送问候 - 模拟 Postfix SMTP 服务器
+            logger.debug(f"发送 220 问候: {self.config.hostname}")
             await self.send_smtp_line(f"220 {self.config.hostname} ESMTP Postfix (Ubuntu)")
             
             # 等待 EHLO - 客户端发送扩展 Hello
+            logger.debug("等待 EHLO 命令...")
             line = await self.read_smtp_line()
             if not line or not line.upper().startswith(('EHLO', 'HELO')):
+                logger.warning(f"未收到 EHLO/HELO 命令: {line}")
                 return False
+            logger.debug(f"收到 EHLO/HELO 命令: {line}")
             
             # 发送能力列表 - 声明支持 STARTTLS 和 AUTH
+            logger.debug(f"发送 250 能力列表: {self.config.hostname}")
             await self.send_smtp_line(f"250-{self.config.hostname}")
             await self.send_smtp_line("250-STARTTLS")
             await self.send_smtp_line("250-AUTH PLAIN LOGIN")
             await self.send_smtp_line("250 8BITMIME")
             
             # 等待 STARTTLS - 客户端请求 TLS 升级
+            logger.debug("等待 STARTTLS 命令...")
             line = await self.read_smtp_line()
             if not line or line.upper() != 'STARTTLS':
+                logger.warning(f"未收到 STARTTLS 命令: {line}")
                 return False
+            logger.debug(f"收到 STARTTLS 命令: {line}")
             
+            # 发送 220 响应 - 准备开始 TLS
+            logger.debug(f"发送 220 响应: Ready to start TLS")
             await self.send_smtp_line("220 2.0.0 Ready to start TLS")
             
             # 升级到 TLS - 建立加密连接
+            logger.debug(f"升级到 TLS 连接: peer={self.peer_str}")
             await self.upgrade_tls(self.ssl_context, server_side=True)
-            logger.debug(f"TLS 已建立: {self.peer_str}")
+            logger.debug(f"TLS 已建立: peer={self.peer_str}")
             
-            # 再次等待 EHLO - TLS 加密后的第二个 Hello
+            # 等待 EHLO - TLS 加密后的第二个 Hello
+            logger.debug("等待 TLS 加密后的 EHLO 命令...")
             line = await self.read_smtp_line()
             if not line or not line.upper().startswith(('EHLO', 'HELO')):
+                logger.warning(f"未收到 TLS 加密后的 EHLO/HELO 命令: {line}")
                 return False
+            logger.debug(f"收到 TLS 加密后的 EHLO/HELO 命令: {line}")
             
             # 发送能力列表 - 加密后的能力声明
+            logger.debug(f"发送 250 能力列表: {self.config.hostname}")
             await self.send_smtp_line(f"250-{self.config.hostname}")
             await self.send_smtp_line("250-AUTH PLAIN LOGIN")
             await self.send_smtp_line("250 8BITMIME")
             
             # 等待 AUTH - 客户端发送认证令牌
+            logger.debug("等待 AUTH 命令...")
             line = await self.read_smtp_line()
             if not line or not line.upper().startswith('AUTH'):
+                logger.warning(f"未收到 AUTH 命令: {line}")
                 return False
+            logger.debug(f"收到 AUTH 命令: {line}")
             
             # 解析认证令牌 - 格式: AUTH PLAIN <base64_token>
             parts = line.split(' ', 2)
             if len(parts) < 3:
+                logger.warning(f"AUTH 命令格式错误: {line}")
                 await self.send_smtp_line("535 5.7.8 Authentication failed")
                 return False
             
             token = parts[2]
+            logger.debug(f"解析认证令牌: {token}")
             
             # 多用户认证 - 验证令牌并获取用户名
             from tunnel.crypto import TunnelCrypto
@@ -226,6 +254,8 @@ class TunnelSession(BaseTunnel):
                 logger.warning(f"来自 {self.peer_str} 的认证失败")
                 await self.send_smtp_line("535 5.7.8 Authentication failed")
                 return False
+            
+            logger.info(f"认证成功: username={username}, peer={self.peer_str}")
             
             # 获取用户配置
             self.username = username
@@ -239,19 +269,28 @@ class TunnelSession(BaseTunnel):
                     logger.warning(f"用户 {username} 不允许从 IP {self.client_ip} 连接")
                     await self.send_smtp_line("535 5.7.8 Authentication failed")
                     return False
+                logger.debug(f"IP 白名单检查通过: {self.client_ip}")
             
-            # 认证成功
+            # 发送认证成功响应
+            logger.debug(f"发送 235 认证成功响应: {username}")
             await self.send_smtp_line("235 2.7.0 Authentication successful")
             self.authenticated = True
             
-            # 信号二进制模式
+            # 等待 BINARY - 客户端请求切换到二进制模式
+            logger.debug("等待 BINARY 命令...")
             line = await self.read_smtp_line()
-            if line == "BINARY":
-                await self.send_smtp_line("299 Binary mode activated")
-                self.binary_mode = True
-                return True
+            if line != "BINARY":
+                logger.warning(f"未收到 BINARY 命令: {line}")
+                return False
+            logger.debug(f"收到 BINARY 命令: {line}")
             
-            return False
+            # 发送 299 响应 - 激活二进制模式
+            logger.debug(f"发送 299 二进制模式激活响应")
+            await self.send_smtp_line("299 Binary mode activated")
+            self.binary_mode = True
+            
+            logger.info(f"SMTP 握手成功: peer={self.peer_str}, username={username}")
+            return True
             
         except Exception as e:
             logger.error(f"握手错误: {e}")
@@ -262,7 +301,7 @@ class TunnelSession(BaseTunnel):
         处理二进制帧 - 根据帧类型分发到相应的处理方法
         
         此方法根据帧类型将帧分发到相应的处理方法。
-        支持的帧类型包括:
+        支持的帧类型包括：
         - FRAME_CONNECT: 连接请求，建立到目标主机的连接
         - FRAME_DATA: 数据帧，转发数据到目标主机
         - FRAME_CLOSE: 关闭帧，关闭指定的通道
@@ -273,10 +312,15 @@ class TunnelSession(BaseTunnel):
             payload: 帧负载数据，内容取决于帧类型
         """
         if frame_type == FRAME_CONNECT:
+            logger.debug(f"处理 CONNECT 帧: channel_id={channel_id}")
             await self._handle_connect(channel_id, payload)
         elif frame_type == FRAME_DATA:
+            channel = self.channels.get(channel_id)
+            if channel:
+                logger.debug(f"处理 DATA 帧: channel_id={channel_id}, payload_len={len(payload)}")
             await self._handle_data(channel_id, payload)
         elif frame_type == FRAME_CLOSE:
+            logger.debug(f"处理 CLOSE 帧: channel_id={channel_id}")
             await self._handle_close(channel_id)
     
     async def _handle_connect(self, channel_id: int, payload: bytes):
@@ -290,11 +334,15 @@ class TunnelSession(BaseTunnel):
             channel_id: 通道ID，用于标识这个连接
             payload: 连接请求数据，包含主机名和端口
         """
+        logger.debug(f"处理 CONNECT 请求: channel_id={channel_id}, payload_len={len(payload)}")
+        
         try:
             # 解析负载: host_len(1) + host + port(2)
             host_len = payload[0]
             host = payload[1:1+host_len].decode('utf-8')
             port = struct.unpack('>H', payload[1+host_len:3+host_len])[0]
+            
+            logger.debug(f"解析连接请求: host={host}, port={port}")
             
             # 处理IPv6地址格式
             is_ipv6 = ':' in host and '.' not in host
@@ -323,7 +371,7 @@ class TunnelSession(BaseTunnel):
                             ipv4_addresses.append(ipv4_address)
                 except Exception as e:
                     logger.debug(f"获取IPv4地址失败: {e}")
-                return ipv4_addresses
+                    return ipv4_addresses
             
             # 检查服务器是否支持IPv6连接
             def is_ipv6_supported():
@@ -369,6 +417,7 @@ class TunnelSession(BaseTunnel):
                     if family is not None:
                         connect_kwargs['family'] = family
                     
+                    logger.debug(f"尝试连接策略: {strategy_name}, target={target_host}")
                     reader, writer = await asyncio.wait_for(
                         asyncio.open_connection(target_host, port, **connect_kwargs),
                         timeout=10.0
@@ -428,13 +477,16 @@ class TunnelSession(BaseTunnel):
         """
         channel = self.channels.get(channel_id)
         if not channel or not channel.connected:
+            logger.debug(f"通道 {channel_id} 不存在或未连接，跳过数据转发")
             return
         
         try:
+            logger.debug(f"转发数据到通道 {channel_id}: {len(payload)} 字节")
             channel.writer.write(payload)
             await channel.writer.drain()
+            logger.debug(f"数据转发成功: channel_id={channel_id}, bytes={len(payload)}")
         except Exception as e:
-            logger.debug(f"转发数据错误: {e}")
+            logger.error(f"转发数据错误: channel_id={channel_id}, error={e}")
             await self._handle_close(channel_id)
     
     async def _handle_close(self, channel_id: int):
@@ -446,6 +498,7 @@ class TunnelSession(BaseTunnel):
         Args:
             channel_id: 通道ID，标识要关闭的通道
         """
+        logger.debug(f"处理 CLOSE 帧: channel_id={channel_id}")
         channel = self.channels.get(channel_id)
         if channel:
             await self.close_channel(channel)
@@ -459,6 +512,8 @@ class TunnelSession(BaseTunnel):
         Args:
             channel: Channel 对象，要读取的通道
         """
+        logger.debug(f"启动通道读取器: channel_id={channel.channel_id}")
+        
         try:
             while channel.connected:
                 data = await asyncio.wait_for(
@@ -466,18 +521,21 @@ class TunnelSession(BaseTunnel):
                     timeout=300.0
                 )
                 if not data:
+                    logger.debug(f"通道 {channel.channel_id} 连接已关闭（读取到空数据）")
                     break
                 
                 await self.send_frame(FRAME_DATA, channel.channel_id, data)
+                logger.debug(f"从通道 {channel.channel_id} 转发数据: {len(data)} 字节")
                 
         except asyncio.TimeoutError:
-            pass
+            logger.debug(f"通道 {channel.channel_id} 读取超时（300秒）")
         except Exception as e:
-            logger.debug(f"通道读取器错误: {e}")
+            logger.debug(f"通道读取器错误: channel_id={channel.channel_id}, error={e}")
         finally:
             if channel.connected:
                 await self.send_frame(FRAME_CLOSE, channel.channel_id)
                 await self.close_channel(channel)
+                logger.debug(f"通道 {channel.channel_id} 读取器已停止")
     
     async def close_channel(self, channel: Channel):
         """

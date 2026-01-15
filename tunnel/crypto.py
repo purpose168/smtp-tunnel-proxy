@@ -115,6 +115,8 @@ class TunnelCrypto:
         - 盐值: b'smtp-tunnel-v1'（固定值）
         - 信息: b'tunnel-keys'（固定值）
         """
+        logger.debug(f"派生密钥: is_server={self.is_server}, secret_length={len(self.secret)}")
+        
         hkdf = HKDF(
             algorithm=hashes.SHA256(),
             length=64,
@@ -123,16 +125,17 @@ class TunnelCrypto:
             backend=default_backend(),
         )
         key_material = hkdf.derive(self.secret)
-
+        
         c2s_key = key_material[:32]
         s2c_key = key_material[32:]
-
         if self.is_server:
             self.send_key = ChaCha20Poly1305(s2c_key)
             self.recv_key = ChaCha20Poly1305(c2s_key)
+            logger.debug("密钥派生完成: send_key=s2c_key, recv_key=c2s_key (服务器端）")
         else:
             self.send_key = ChaCha20Poly1305(c2s_key)
             self.recv_key = ChaCha20Poly1305(s2c_key)
+            logger.debug("密钥派生完成: send_key=c2s_key, recv_key=s2c_key (客户端端）")
 
     def encrypt(self, plaintext: bytes) -> bytes:
         """
@@ -156,11 +159,16 @@ class TunnelCrypto:
         Raises:
             OverflowError: 如果序列号超过 2^64-1
         """
+        logger.debug(f"加密数据: plaintext_len={len(plaintext)}, send_seq={self.send_seq}")
+        
         nonce = struct.pack('>Q', self.send_seq) + os.urandom(4)
         self.send_seq += 1
-
+        
         ciphertext = self.send_key.encrypt(nonce, plaintext, None)
-        return nonce + ciphertext
+        result = nonce + ciphertext
+        
+        logger.debug(f"加密完成: nonce_len=12, ciphertext_len={len(ciphertext)}, total_len={len(result)}")
+        return result
 
     def decrypt(self, data: bytes) -> bytes:
         """
@@ -178,16 +186,23 @@ class TunnelCrypto:
         Raises:
             ValueError: 如果数据太短或认证失败
         """
+        logger.debug(f"解密数据: data_len={len(data)}, recv_seq={self.recv_seq}")
+        
         if len(data) < NONCE_SIZE + TAG_SIZE:
+            logger.error(f"数据太短: {len(data)} 字节，最小需要 {NONCE_SIZE + TAG_SIZE} 字节")
             raise ValueError("数据太短")
-
+        
         nonce = data[:NONCE_SIZE]
         ciphertext = data[NONCE_SIZE:]
-
-        plaintext = self.recv_key.decrypt(nonce, ciphertext, None)
-        self.recv_seq += 1
-
-        return plaintext
+        
+        try:
+            plaintext = self.recv_key.decrypt(nonce, ciphertext, None)
+            self.recv_seq += 1
+            logger.debug(f"解密完成: plaintext_len={len(plaintext)}, recv_seq={self.recv_seq}")
+            return plaintext
+        except Exception as e:
+            logger.error(f"解密失败: {e}")
+            raise ValueError(f"认证失败: {e}")
 
     def generate_auth_token(self, timestamp: int, username: str = None) -> str:
         """
@@ -209,15 +224,22 @@ class TunnelCrypto:
         Returns:
             str: Base64 编码的认证令牌
         """
+        logger.debug(f"生成认证令牌: timestamp={timestamp}, username={username}")
+        
         if username:
             message = f"smtp-tunnel-auth:{username}:{timestamp}".encode()
             mac = hmac.new(self.secret, message, hashlib.sha256).digest()
             token = f"{username}:{timestamp}:{base64.b64encode(mac).decode()}"
+            logger.debug(f"生成多用户令牌: {username}:{timestamp}:{base64.b64encode(mac).decode()}")
         else:
             message = f"smtp-tunnel-auth:{timestamp}".encode()
             mac = hmac.new(self.secret, message, hashlib.sha256).digest()
             token = f"{timestamp}:{base64.b64encode(mac).decode()}"
-        return base64.b64encode(token.encode()).decode()
+            logger.debug(f"生成单用户令牌: {timestamp}:{base64.b64encode(mac).decode()}")
+        
+        encoded_token = base64.b64encode(token.encode()).decode()
+        logger.debug(f"认证令牌编码完成: {encoded_token}")
+        return encoded_token
 
     def verify_auth_token(self, token: str, max_age: int = 300) -> Tuple[bool, Optional[str]]:
         """
@@ -237,30 +259,44 @@ class TunnelCrypto:
             Tuple[bool, Optional[str]]: (是否有效, 用户名)
                                          - 旧格式令牌的 username 为 None
         """
+        logger.debug(f"验证认证令牌: token={token}, max_age={max_age}")
+        
         try:
             decoded = base64.b64decode(token).decode()
             parts = decoded.split(':')
-
+            
             if len(parts) == 3:
                 username, timestamp_str, mac_b64 = parts
+                logger.debug(f"解析多用户令牌: username={username}, timestamp={timestamp_str}")
                 timestamp = int(timestamp_str)
             elif len(parts) == 2:
                 username = None
                 timestamp_str, mac_b64 = parts
+                logger.debug(f"解析单用户令牌: timestamp={timestamp_str}")
                 timestamp = int(timestamp_str)
             else:
+                logger.error(f"令牌格式错误: {len(parts)} 个部分，预期 2 或 3")
                 return False, None
-
+            
             now = int(time.time())
-            if abs(now - timestamp) > max_age:
+            age = abs(now - timestamp)
+            logger.debug(f"令牌年龄: {age} 秒，最大允许: {max_age} 秒")
+            
+            if age > max_age:
+                logger.warning(f"令牌过期: age={age} 秒，最大允许: {max_age} 秒")
                 return False, None
-
+            
             expected_token = self.generate_auth_token(timestamp, username)
+            logger.debug(f"预期令牌: {expected_token}")
+            
             if hmac.compare_digest(token, expected_token):
+                logger.info(f"认证令牌验证成功: username={username}")
                 return True, username
-            return False, None
+            else:
+                logger.warning(f"认证令牌验证失败: HMAC 不匹配")
+                return False, None
         except Exception as e:
-            logger.warning(f"认证: 异常 - {e}")
+            logger.warning(f"认证令牌验证异常: {e}")
             return False, None
 
     @staticmethod
@@ -277,7 +313,15 @@ class TunnelCrypto:
         Returns:
             bool: 密码是否匹配
         """
-        return hmac.compare_digest(password.encode('utf-8'), secret.encode('utf-8'))
+        logger.debug(f"验证密码: password_length={len(password)}, secret_length={len(secret)}")
+        result = hmac.compare_digest(password.encode('utf-8'), secret.encode('utf-8'))
+        
+        if result:
+            logger.info("密码验证成功")
+        else:
+            logger.warning("密码验证失败")
+        
+        return result
 
     @staticmethod
     def verify_auth_token_multi_user(token: str, users: Dict[str, Dict], max_age: int = 300) -> Tuple[bool, Optional[str]]:
@@ -300,27 +344,37 @@ class TunnelCrypto:
             Tuple[bool, Optional[str]]: (是否有效, 用户名)
                                          - 旧格式令牌的 username 为 None
         """
+        logger.debug(f"验证多用户认证令牌: token={token}, user_count={len(users)}, max_age={max_age}")
+        
         try:
             decoded = base64.b64decode(token).decode()
             parts = decoded.split(':')
             
             if len(parts) == 3:
                 username, timestamp_str, mac_b64 = parts
+                logger.debug(f"解析多用户令牌: username={username}, timestamp={timestamp_str}")
                 timestamp = int(timestamp_str)
             elif len(parts) == 2:
                 username = None
                 timestamp_str, mac_b64 = parts
+                logger.debug(f"解析单用户令牌: timestamp={timestamp_str}")
                 timestamp = int(timestamp_str)
             else:
+                logger.error(f"令牌格式错误: {len(parts)} 个部分，预期 2 或 3")
                 return False, None
             
             now = int(time.time())
-            if abs(now - timestamp) > max_age:
+            age = abs(now - timestamp)
+            logger.debug(f"令牌年龄: {age} 秒，最大允许: {max_age} 秒")
+            
+            if age > max_age:
+                logger.warning(f"令牌过期: age={age} 秒，最大允许: {max_age} 秒")
                 return False, None
             
             # 如果有用户名，检查用户是否存在
             if username is not None:
                 if username not in users:
+                    logger.warning(f"用户不存在: {username}")
                     return False, None
                 
                 # 获取用户密钥
@@ -328,6 +382,7 @@ class TunnelCrypto:
                 user_secret = user_config.secret
                 
                 if not user_secret:
+                    logger.error(f"用户密钥为空: {username}")
                     return False, None
                 
                 # 使用用户密钥生成预期的令牌
@@ -336,13 +391,16 @@ class TunnelCrypto:
                 
                 # 验证 HMAC 签名
                 if hmac.compare_digest(token.encode(), expected_token.encode()):
+                    logger.info(f"多用户认证令牌验证成功: username={username}")
                     return True, username
                 else:
+                    logger.warning(f"多用户认证令牌验证失败: HMAC 不匹配")
                     return False, None
             else:
                 # 旧格式令牌，只验证时间戳
+                logger.info(f"旧格式令牌验证成功: timestamp={timestamp}")
                 return True, None
                 
         except Exception as e:
-            logger.warning(f"认证: 异常 - {e}")
+            logger.warning(f"多用户认证令牌验证异常: {e}")
             return False, None

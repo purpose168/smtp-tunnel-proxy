@@ -31,9 +31,12 @@ SMTP 隧道 - 核心协议模块
 """
 
 import struct
+import logging
 from enum import IntEnum
 from typing import Tuple, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger('smtp-tunnel-protocol')
 
 
 # ============================================================================
@@ -118,6 +121,8 @@ class TunnelMessage:
         Raises:
             struct.error: 如果载荷长度超过 65535
         """
+        logger.debug(f"序列化消息: type={self.msg_type.name}, channel_id={self.channel_id}, payload_len={len(self.payload)}")
+        
         header = struct.pack(
             '>BBHH',
             PROTOCOL_VERSION,
@@ -144,23 +149,31 @@ class TunnelMessage:
         Raises:
             ValueError: 如果数据不足以解析头部或载荷，或协议版本不匹配
         """
+        logger.debug(f"开始反序列化消息: data_len={len(data)}")
+        
         if len(data) < cls.HEADER_SIZE:
+            logger.error(f"数据不足以解析头部: {len(data)} 字节，需要 {cls.HEADER_SIZE} 字节")
             raise ValueError("数据不足以解析头部")
-
+        
         version, msg_type, channel_id, payload_len = struct.unpack(
             '>BBHH', data[:cls.HEADER_SIZE]
         )
-
+        
+        logger.debug(f"解析帧头: version={version}, msg_type={msg_type}, channel_id={channel_id}, payload_len={payload_len}")
+        
         if version != PROTOCOL_VERSION:
+            logger.error(f"未知的协议版本: {version}, 预期: {PROTOCOL_VERSION}")
             raise ValueError(f"未知的协议版本: {version}")
-
+        
         total_len = cls.HEADER_SIZE + payload_len
         if len(data) < total_len:
+            logger.error(f"数据不足以解析负载: {len(data)} 字节，需要 {total_len} 字节")
             raise ValueError("数据不足以解析负载")
-
+        
         payload = data[cls.HEADER_SIZE:total_len]
         remaining = data[total_len:]
-
+        
+        logger.debug(f"解析完成: payload_len={len(payload)}, remaining_len={len(remaining)}")
         return cls(MsgType(msg_type), channel_id, payload), remaining
 
     @classmethod
@@ -177,6 +190,7 @@ class TunnelMessage:
         Returns:
             TunnelMessage: DATA 类型的消息对象
         """
+        logger.debug(f"创建 DATA 消息: channel_id={channel_id}, data_len={len(data)}")
         return cls(MsgType.DATA, channel_id, data)
 
     @classmethod
@@ -186,11 +200,11 @@ class TunnelMessage:
         
         用于请求建立到目标主机的连接。
         
-        载荷格式:
-        ┌──────────┬─────────────┬────────┐
-        │ 主机长度 │   主机名    │ 端口号  │
-        │  1 字节  │  可变长度   │ 2 字节 │
-        └──────────┴─────────────┴────────┘
+        潽荷格式:
+        ┌──────────┬────────────┬────────────┐
+        │ 主机长度 │   主机名    │ 端口号   │
+        │  1 字节  │  可变长度  │  2 字节   │
+        └──────────┴────────────┴────────────┘
         
         Args:
             channel_id: 通道 ID
@@ -200,6 +214,7 @@ class TunnelMessage:
         Returns:
             TunnelMessage: CONNECT 类型的消息对象
         """
+        logger.debug(f"创建 CONNECT 消息: channel_id={channel_id}, host={host}, port={port}")
         host_bytes = host.encode('utf-8')
         payload = struct.pack('>B', len(host_bytes)) + host_bytes + struct.pack('>H', port)
         return cls(MsgType.CONNECT, channel_id, payload)
@@ -209,7 +224,7 @@ class TunnelMessage:
         """
         创建 CONNECT_OK 消息
         
-        表示服务器成功连接到目标主机，通道已准备好传输数据。
+        用于响应连接请求成功。
         
         Args:
             channel_id: 通道 ID
@@ -217,14 +232,15 @@ class TunnelMessage:
         Returns:
             TunnelMessage: CONNECT_OK 类型的消息对象
         """
+        logger.debug(f"创建 CONNECT_OK 消息: channel_id={channel_id}")
         return cls(MsgType.CONNECT_OK, channel_id, b'')
 
     @classmethod
-    def connect_fail(cls, channel_id: int, reason: str = '') -> 'TunnelMessage':
+    def connect_fail(cls, channel_id: int, reason: str = None) -> 'TunnelMessage':
         """
         创建 CONNECT_FAIL 消息
         
-        表示服务器无法连接到目标主机。
+        用于响应连接请求失败。
         
         Args:
             channel_id: 通道 ID
@@ -233,22 +249,9 @@ class TunnelMessage:
         Returns:
             TunnelMessage: CONNECT_FAIL 类型的消息对象
         """
-        return cls(MsgType.CONNECT_FAIL, channel_id, reason.encode('utf-8'))
-
-    @classmethod
-    def close(cls, channel_id: int) -> 'TunnelMessage':
-        """
-        创建 CLOSE 消息
-        
-        用于关闭指定的通道并释放相关资源。
-        
-        Args:
-            channel_id: 要关闭的通道 ID
-            
-        Returns:
-            TunnelMessage: CLOSE 类型的消息对象
-        """
-        return cls(MsgType.CLOSE, channel_id, b'')
+        logger.debug(f"创建 CONNECT_FAIL 消息: channel_id={channel_id}, reason={reason}")
+        payload = reason.encode('utf-8') if reason else b''
+        return cls(MsgType.CONNECT_FAIL, channel_id, payload)
 
     @classmethod
     def keepalive(cls) -> 'TunnelMessage':
@@ -260,6 +263,7 @@ class TunnelMessage:
         Returns:
             TunnelMessage: KEEPALIVE 类型的消息对象
         """
+        logger.debug("创建 KEEPALIVE 消息")
         return cls(MsgType.KEEPALIVE, 0, b'')
 
     @classmethod
@@ -287,10 +291,14 @@ class TunnelMessage:
             ValueError: 如果消息不是 CONNECT 类型
         """
         if self.msg_type != MsgType.CONNECT:
+            logger.error(f"解析 CONNECT 消息失败: 消息类型为 {self.msg_type.name}")
             raise ValueError("不是 CONNECT 消息")
+        
         host_len = self.payload[0]
         host = self.payload[1:1+host_len].decode('utf-8')
         port = struct.unpack('>H', self.payload[1+host_len:3+host_len])[0]
+        
+        logger.debug(f"解析 CONNECT 消息: host={host}, port={port}")
         return host, port
 
 
@@ -338,11 +346,17 @@ def parse_frame_header(data: bytes) -> Optional[Tuple[int, int, int]]:
         tuple: (frame_type, channel_id, payload_len) 如果数据足够
         None: 如果数据不足5字节
     """
+    logger.debug(f"解析帧头: data_len={len(data)}")
+    
     if len(data) < TunnelMessage.HEADER_SIZE:
+        logger.warning(f"数据不足以解析帧头: {len(data)} 字节，需要 {TunnelMessage.HEADER_SIZE} 字节")
         return None
+    
     version, msg_type, channel_id, payload_len = struct.unpack(
         '>BBHH', data[:TunnelMessage.HEADER_SIZE]
     )
+    
+    logger.debug(f"解析帧头完成: version={version}, msg_type={msg_type}, channel_id={channel_id}, payload_len={payload_len}")
     return msg_type, channel_id, payload_len
 
 
@@ -355,9 +369,13 @@ def make_connect_payload(host: str, port: int) -> bytes:
     Args:
         host: 目标主机名或IP地址
         port: 目标端口号
-    
+        
     Returns:
         连接请求载荷字节数组
     """
+    logger.debug(f"构造连接载荷: host={host}, port={port}")
     host_bytes = host.encode('utf-8')
-    return struct.pack('>B', len(host_bytes)) + host_bytes + struct.pack('>H', port)
+    payload = struct.pack('>B', len(host_bytes)) + host_bytes + struct.pack('>H', port)
+    
+    logger.debug(f"连接载荷构造完成: payload_len={len(payload)}")
+    return payload

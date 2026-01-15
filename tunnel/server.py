@@ -90,9 +90,14 @@ class TunnelServer:
             - 用户配置用于客户端认证
             - 服务器配置用于绑定监听地址
         """
+        logger.debug(f"初始化隧道服务器: host={config.host}, port={config.port}, hostname={config.hostname}")
+        logger.debug(f"加载用户数: {len(users)}")
+        
         self.config = config
         self.users = users
         self.ssl_context = self._create_ssl_context()
+        
+        logger.info("隧道服务器初始化完成")
 
     def _create_ssl_context(self) -> ssl.SSLContext:
         """
@@ -105,14 +110,14 @@ class TunnelServer:
             ssl.SSLContext: 配置好的 SSL/TLS 上下文
         
         TLS 配置:
-        - 协议: TLS_SERVER（服务器模式）
-        - 最低版本: TLSv1.2（禁用不安全的旧版本）
-        - 证书: 从配置文件加载服务器证书和私钥
+            - 协议: TLS_SERVER（服务器模式）
+            - 最低版本: TLSv1.2（禁用不安全的旧版本）
+            - 证书: 从配置文件加载服务器证书和私钥
         
         安全特性:
-        - 禁用 SSLv2、SSLv3、TLSv1.0、TLSv1.1（已知漏洞）
-        - 使用现代加密套件
-        - 服务器证书验证
+            - 禁用 SSLv2、SSLv3、TLSv1.0、TLSv1.1（已知漏洞）
+            - 使用现代加密套件
+            - 服务器证书验证
         
         Note:
             - 证书文件路径从 config.cert_file 获取
@@ -123,9 +128,13 @@ class TunnelServer:
             >>> ctx = server._create_ssl_context()
             >>> # ctx 可用于创建 SSL 套接字
         """
+        logger.debug(f"创建 SSL/TLS 上下文: cert_file={self.config.cert_file}, key_file={self.config.key_file}")
+        
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.load_cert_chain(self.config.cert_file, self.config.key_file)
+        
+        logger.info("SSL/TLS 上下文创建完成")
         return ctx
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -140,9 +149,9 @@ class TunnelServer:
             writer: asyncio.StreamWriter，用于向客户端写入数据
         
         工作流程:
-        1. 创建 TunnelSession 对象
-        2. 启动会话处理循环
-        3. 会话结束后自动清理资源
+            1. 创建 TunnelSession 对象
+            2. 启动会话处理循环
+            3. 会话结束后自动清理资源
         
         Note:
             - 此方法由 asyncio.start_server 自动调用
@@ -153,8 +162,18 @@ class TunnelServer:
             >>> # 此方法由 asyncio.start_server 自动调用
             >>> # 不需要手动调用
         """
-        session = TunnelSession(reader, writer, self.config, self.ssl_context, self.users)
-        await session.run()
+        peer_addr = writer.get_extra_info('peername')
+        logger.info(f"接受新的客户端连接: {peer_addr[0]}:{peer_addr[1]}")
+        
+        try:
+            session = TunnelSession(reader, writer, self.config, self.ssl_context, self.users)
+            logger.debug(f"创建隧道会话: peer={peer_addr[0]}:{peer_addr[1]}")
+            await session.run()
+            logger.info(f"隧道会话结束: peer={peer_addr[0]}:{peer_addr[1]}")
+        except Exception as e:
+            logger.error(f"处理客户端连接时发生异常: peer={peer_addr[0]}:{peer_addr[1]}, error={e}")
+        finally:
+            logger.debug(f"清理客户端连接: peer={peer_addr[0]}:{peer_addr[1]}")
 
     async def start(self):
         """
@@ -170,9 +189,9 @@ class TunnelServer:
         4. 进入 serve_forever 循环
         
         服务器信息:
-        - 监听地址和端口
-        - 服务器主机名
-        - 已加载的用户数量
+            - 监听地址和端口
+            - 服务器主机名
+            - 已加载的用户数量
         
         Note:
             - 使用 asyncio.start_server 创建异步服务器
@@ -185,6 +204,9 @@ class TunnelServer:
             >>> asyncio.run(server.start())
             # 服务器开始运行，监听配置的端口
         """
+        logger.info(f"启动 SMTP 隧道服务器: {self.config.host}:{self.config.port}")
+        logger.debug(f"服务器配置: hostname={self.config.hostname}, cert_file={self.config.cert_file}")
+        
         server = await asyncio.start_server(
             self.handle_client,
             self.config.host,
@@ -194,6 +216,13 @@ class TunnelServer:
         logger.info(f"SMTP 隧道服务器运行于 {addr[0]}:{addr[1]}")
         logger.info(f"主机名: {self.config.hostname}")
         logger.info(f"已加载用户数: {len(self.users)}")
-
-        async with server:
-            await server.serve_forever()
+        
+        try:
+            async with server:
+                await server.serve_forever()
+        except KeyboardInterrupt:
+            logger.info("接收到中断信号，正在停止服务器...")
+        except Exception as e:
+            logger.error(f"服务器运行时发生异常: {e}")
+        finally:
+            logger.info("SMTP 隧道服务器已停止")

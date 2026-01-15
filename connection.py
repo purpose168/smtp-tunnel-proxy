@@ -1,23 +1,26 @@
 """
-连接管理模块 - 统一的通道和连接管理
+  连接管理模块 - 统一的通道和连接管理
 
-本模块整合了 SOCKS5 协议常量、通道数据类和连接管理功能，
-提供客户端和服务器端的统一接口。
+  本模块整合了 SOCKS5 协议常量、通道数据类和连接管理功能，
+  提供客户端和服务器端的统一接口。
 
-主要功能:
-- SOCKS5 协议常量定义
-- IPv4 回退地址池管理
-- 统一的隧道通道数据类
-- TCP 连接管理（支持多种连接策略）
-- 通道资源清理
+  主要功能:
+  - SOCKS5 协议常量定义
+  - IPv4 回退地址池管理
+  - 统一的隧道通道数据类
+  - TCP 连接管理（支持多种连接策略）
+  - 通道资源清理
 
-版本: 1.3.0
+  版本:1.3.0
 """
 
 import asyncio
 import socket
+import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
+logger = logging.getLogger('smtp-tunnel-connection')
 
 
 # ============================================================================
@@ -124,6 +127,7 @@ class Channel:
         Returns:
             Channel: 已连接的客户端通道对象
         """
+        logger.debug(f"创建客户端通道: channel_id={channel_id}, host={host}, port={port}")
         return cls(
             channel_id=channel_id,
             reader=reader,
@@ -148,6 +152,7 @@ class Channel:
         Returns:
             Channel: 未连接的服务器通道对象
         """
+        logger.debug(f"创建服务器通道: channel_id={channel_id}, host={host}, port={port}")
         return cls(
             channel_id=channel_id,
             host=host,
@@ -207,70 +212,91 @@ async def connect_to_target(host: str, port: int, ipv6_supported: bool = True) -
         >>> if reader and writer:
         ...     print("连接成功")
     """
+    logger.info(f"尝试连接到目标: {host}:{port}, ipv6_supported={ipv6_supported}")
     reader, writer = None, None
     
     # 策略 1: IPv6 连接（如果是 IPv6 地址）
     if ':' in host and ipv6_supported:
+        logger.debug(f"尝试策略 1: IPv6 连接")
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port, family=socket.AF_INET6),
                 timeout=10.0
             )
+            logger.info(f"IPv6 连接成功: {host}:{port}")
             return reader, writer
         except Exception as e:
+            logger.debug(f"IPv6 连接失败: {e}")
             pass
     
     # 策略 2: 自动地址族选择（如果是域名）
     if '.' in host or ':' in host:
+        logger.debug(f"尝试策略 2: 自动地址族选择")
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port),
                 timeout=10.0
             )
+            logger.info(f"自动地址族连接成功: {host}:{port}")
             return reader, writer
         except Exception as e:
+            logger.debug(f"自动地址族连接失败: {e}")
             pass
     
     # 策略 3: IPv4 连接
     if '.' in host:
+        logger.debug(f"尝试策略 3: IPv4 连接")
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port, family=socket.AF_INET),
                 timeout=10.0
             )
+            logger.info(f"IPv4 连接成功: {host}:{port}")
             return reader, writer
         except Exception as e:
+            logger.debug(f"IPv4 连接失败: {e}")
             pass
     
     # 策略 4: IPv4 地址池回退（对于纯 IPv6 地址）
     if host in IPv4_FALLBACK_POOL:
+        logger.debug(f"尝试策略 4: IPv4 地址池回退")
         for ipv4_addr in IPv4_FALLBACK_POOL[host]:
+            logger.debug(f"尝试 IPv4 地址: {ipv4_addr}")
             try:
                 reader, writer = await asyncio.wait_for(
                     asyncio.open_connection(ipv4_addr, port, family=socket.AF_INET),
                     timeout=10.0
                 )
+                logger.info(f"IPv4 地址池连接成功: {ipv4_addr}:{port}")
                 return reader, writer
             except Exception as e:
+                logger.debug(f"IPv4 地址池连接失败: {ipv4_addr}, 错误: {e}")
                 continue
     
     # 策略 5: Google DNS 解析（如果是域名）
     if '.' in host:
+        logger.debug(f"尝试策略 5: Google DNS 解析")
         try:
             loop = asyncio.get_event_loop()
             infos = await loop.getaddrinfo(host, port, family=socket.AF_INET)
+            logger.debug(f"DNS 解析结果: {len(infos)} 个地址")
             for info in infos:
+                logger.debug(f"尝试 DNS 解析地址: {info[4][0]}")
                 try:
                     reader, writer = await asyncio.wait_for(
                         asyncio.open_connection(info[4][0], port),
                         timeout=10.0
                     )
+                    logger.info(f"Google DNS 解析连接成功: {info[4][0]}:{port}")
                     return reader, writer
                 except Exception as e:
+                    logger.debug(f"Google DNS 解析连接失败: {info[4][0]}, 错误: {e}")
                     continue
         except Exception as e:
+            logger.debug(f"Google DNS 解析失败: {e}")
             pass
     
+    logger.warning(f"所有连接策略都失败: {host}:{port}")
     return None, None
 
 
@@ -286,21 +312,31 @@ def close_channel(channel: Channel):
     Example:
         >>> close_channel(channel)
     """
+    logger.debug(f"关闭通道: channel_id={channel.channel_id}, host={channel.host}, port={channel.port}")
+    
     if channel.reader_task and not channel.reader_task.done():
+        logger.debug(f"取消读取任务: channel_id={channel.channel_id}")
         channel.reader_task.cancel()
         try:
             channel.reader_task.result()
-        except:
+        except Exception as e:
+            logger.debug(f"取消读取任务异常: channel_id={channel.channel_id}, error={e}")
             pass
     
     if channel.writer:
+        logger.debug(f"关闭写入器: channel_id={channel.channel_id}")
         try:
             channel.writer.close()
-        except:
+            logger.debug(f"写入器已关闭: channel_id={channel.channel_id}")
+        except Exception as e:
+            logger.error(f"关闭写入器失败: channel_id={channel.channel_id}, error={e}")
             pass
     
     if channel.reader:
+        logger.debug(f"清理读取器: channel_id={channel.channel_id}")
         channel.reader = None
     
     channel.writer = None
     channel.connected = False
+    
+    logger.info(f"通道已关闭: channel_id={channel.channel_id}")

@@ -86,14 +86,19 @@ class BaseTunnel(ABC):
         Returns:
             bool: 收到 250 响应返回 True，否则返回 False
         """
+        logger.debug("等待 250 响应...")
         while True:
             line = await self.read_smtp_line()
             if not line:
+                logger.warning("等待 250 响应失败：连接已关闭")
                 return False
             if line.startswith('250 '):
+                logger.debug(f"收到 250 响应: {line}")
                 return True
             if line.startswith('250-'):
+                logger.debug(f"收到 250- 响应: {line}")
                 continue
+            logger.warning(f"收到非 250 响应: {line}")
             return False
     
     async def upgrade_tls(self, ssl_context, server_side: bool = False, server_hostname: str = None):
@@ -105,22 +110,29 @@ class BaseTunnel(ABC):
             server_side: 是否为服务器端
             server_hostname: 服务器主机名（客户端使用）
         """
+        logger.info(f"升级到 TLS 连接（server_side={server_side}, server_hostname={server_hostname}）")
+        
         transport = self.writer.transport
         protocol = self.writer._protocol
         loop = asyncio.get_event_loop()
         
-        if server_side:
-            new_transport = await loop.start_tls(
-                transport, protocol, ssl_context, server_side=True
-            )
-        else:
-            new_transport = await loop.start_tls(
-                transport, protocol, ssl_context,
-                server_hostname=server_hostname
-            )
-        
-        self.writer._transport = new_transport
-        self.reader._transport = new_transport
+        try:
+            if server_side:
+                new_transport = await loop.start_tls(
+                    transport, protocol, ssl_context, server_side=True
+                )
+            else:
+                new_transport = await loop.start_tls(
+                    transport, protocol, ssl_context,
+                    server_hostname=server_hostname
+                )
+            
+            self.writer._transport = new_transport
+            self.reader._transport = new_transport
+            logger.info("TLS 连接升级成功")
+        except Exception as e:
+            logger.error(f"TLS 连接升级失败: {e}")
+            raise
     
     async def send_frame(self, frame_type: int, channel_id: int, payload: bytes = b''):
         """
@@ -134,15 +146,20 @@ class BaseTunnel(ABC):
             payload: 帧载荷数据，默认为空
         """
         if not self.writer:
+            logger.warning("无法发送帧：writer 不存在")
             return
+        
+        frame_type_name = self._get_frame_type_name(frame_type)
+        logger.debug(f"发送帧: type={frame_type_name}({frame_type}), channel_id={channel_id}, payload_len={len(payload)}")
         
         async with self.write_lock:
             try:
                 frame = make_frame(frame_type, channel_id, payload)
                 self.writer.write(frame)
                 await self.writer.drain()
+                logger.debug(f"帧发送成功: type={frame_type_name}({frame_type}), channel_id={channel_id}")
             except Exception as e:
-                logging.error(f"发送帧失败: {e}")
+                logger.error(f"发送帧失败: type={frame_type_name}({frame_type}), channel_id={channel_id}, error={e}")
     
     @abstractmethod
     async def smtp_handshake(self) -> bool:
@@ -183,6 +200,25 @@ class BaseTunnel(ABC):
         """
         pass
     
+    def _get_frame_type_name(self, frame_type: int) -> str:
+        """
+        获取帧类型名称
+        
+        Args:
+            frame_type: 帧类型
+            
+        Returns:
+            str: 帧类型名称
+        """
+        frame_names = {
+            FRAME_DATA: 'DATA',
+            FRAME_CONNECT: 'CONNECT',
+            FRAME_CONNECT_OK: 'CONNECT_OK',
+            FRAME_CONNECT_FAIL: 'CONNECT_FAIL',
+            FRAME_CLOSE: 'CLOSE'
+        }
+        return frame_names.get(frame_type, f'UNKNOWN({frame_type})')
+    
     def _parse_frame_header(self, data: bytes) -> Optional[Tuple[int, int, int]]:
         """
         解析帧头
@@ -209,36 +245,47 @@ class BaseTunnel(ABC):
         Args:
             timeout: 读取超时时间
         """
+        logger.info(f"进入二进制模式循环（timeout={timeout}秒）")
         buffer = b''
         
         while True:
             try:
                 chunk = await asyncio.wait_for(self.reader.read(65536), timeout=timeout)
                 if not chunk:
+                    logger.info("连接已关闭（读取到空数据）")
                     break
                 buffer += chunk
+                logger.debug(f"接收到数据块: {len(chunk)} 字节，缓冲区大小: {len(buffer)} 字节")
     
                 while len(buffer) >= FRAME_HEADER_SIZE:
                     header = self._parse_frame_header(buffer)
                     if not header:
+                        logger.debug(f"缓冲区数据不足（{len(buffer)} 字节），等待更多数据...")
                         break
     
                     frame_type, channel_id, payload_len = header
                     total_len = FRAME_HEADER_SIZE + payload_len
+                    frame_type_name = self._get_frame_type_name(frame_type)
+                    logger.debug(f"解析帧头: type={frame_type_name}({frame_type}), channel_id={channel_id}, payload_len={payload_len}")
     
                     if len(buffer) < total_len:
+                        logger.debug(f"缓冲区数据不足（{len(buffer)}/{total_len} 字节），等待更多数据...")
                         break
     
                     payload = buffer[FRAME_HEADER_SIZE:total_len]
                     buffer = buffer[total_len:]
+                    logger.debug(f"处理帧: type={frame_type_name}({frame_type}), channel_id={channel_id}, payload_len={len(payload)}")
     
                     await self.process_frame(frame_type, channel_id, payload)
     
             except asyncio.TimeoutError:
+                logger.debug(f"读取超时（{timeout}秒），继续等待...")
                 continue
             except Exception as e:
-                logging.error(f"二进制模式错误: {e}")
+                logger.error(f"二进制模式错误: {e}")
                 break
+        
+        logger.info("退出二进制模式循环")
     
     def set_reader_writer(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """
