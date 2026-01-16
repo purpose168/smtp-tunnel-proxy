@@ -19,7 +19,7 @@ NC='\033[0m'          # 无颜色
 GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 
 # 获取脚本所在目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/smtp-tunnel-proxy/"
 
 # 安装目录（使用脚本执行时的当前路径）
 INSTALL_DIR="$SCRIPT_DIR"           # 程序安装目录

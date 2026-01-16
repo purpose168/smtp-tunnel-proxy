@@ -27,17 +27,33 @@ SMTP 隧道统一模块
 """
 
 from .base import BaseTunnel
-from .client import TunnelClient
-from .crypto import TunnelCrypto
 
-# 延迟导入 TunnelSession 和 TunnelServer 以避免循环导入
+# 延迟导入所有模块以避免循环导入和模块缺失错误
 def __getattr__(name):
-    if name == 'TunnelSession':
-        from .session import TunnelSession
-        return TunnelSession
+    if name == 'TunnelClient':
+        try:
+            from .client import TunnelClient
+            return TunnelClient
+        except ImportError as e:
+            raise ImportError(f"无法导入 tunnel.client 模块: {e}")
+    elif name == 'TunnelCrypto':
+        try:
+            from .crypto import TunnelCrypto
+            return TunnelCrypto
+        except ImportError as e:
+            raise ImportError(f"无法导入 tunnel.crypto 模块: {e}")
+    elif name == 'TunnelSession':
+        try:
+            from .session import TunnelSession
+            return TunnelSession
+        except ImportError as e:
+            raise ImportError(f"无法导入 tunnel.session 模块: {e}")
     elif name == 'TunnelServer':
-        from .server import TunnelServer
-        return TunnelServer
+        try:
+            from .server import TunnelServer
+            return TunnelServer
+        except ImportError as e:
+            raise ImportError(f"无法导入 tunnel.server 模块: {e}")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
