@@ -23,34 +23,8 @@ from common import load_users, save_users, load_config, UserConfig  # 导入通�
 
 
 def find_project_root() -> str:
-    """查找项目根目录，尝试多个可能的位置。"""
-    possible_roots = [
-        os.path.dirname(os.path.abspath(__file__)),  # 当前脚本所在目录
-        '/opt/smtp-tunnel',                          # 标准安装目录
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'),  # 上级目录
-    ]
-    
-    # 检查常见的项目文件（包括拆分后的模块）
-    project_files = [
-        'server.py', 'client.py', 'common.py', 'requirements.txt',
-        'protocol/__init__.py', 'protocol/core.py', 'protocol/client.py', 'protocol/server.py',
-        'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py', 'tunnel/session.py', 'tunnel/server.py',
-        'config.py', 'logger.py',
-        'socks5_server.py', 'connection.py',
-    ]
-    
-    for root in possible_roots:
-        # 检查是否包含所有必需的文件
-        found_files = 0
-        for project_file in project_files:
-            if os.path.exists(os.path.join(root, project_file)):
-                found_files += 1
-        
-        # 如果找到大部分文件，认为这是项目根目录
-        if found_files >= 10:
-            return root
-    
-    # 如果都找不到，返回当前脚本目录
+    """查找项目根目录，使用脚本执行时的当前路径。"""
+    # 直接返回脚本所在目录
     return os.path.dirname(os.path.abspath(__file__))
 
 

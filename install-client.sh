@@ -19,14 +19,19 @@ NC='\033[0m'          # 无颜色
 # GitHub 原始文件 URL 基础地址
 GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 
-# 安装目录
-INSTALL_DIR="/opt/smtp-tunnel"      # 程序安装目录
-CONFIG_DIR="/etc/smtp-tunnel"       # 配置文件目录
-BIN_DIR="/usr/local/bin"            # 可执行文件目录
-VENV_DIR="/opt/smtp-tunnel/venv"    # Python 虚拟环境目录
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 日志目录
-LOG_DIR="/var/log/smtp-tunnel"
+# 安装目录（使用脚本执行时的当前路径）
+INSTALL_DIR="$SCRIPT_DIR"           # 程序安装目录
+CONFIG_DIR="$SCRIPT_DIR"            # 配置文件目录
+VENV_DIR="$SCRIPT_DIR/venv"        # Python 虚拟环境目录
+LOG_DIR="$SCRIPT_DIR/logs"           # 日志目录
+
+# BIN_DIR 保持系统级目录不变
+BIN_DIR="/usr/local/bin"            # 可执行文件目录
+
+# 日志文件
 LOG_FILE="$LOG_DIR/install-client.log"
 
 # 需要下载的客户端 Python 文件
@@ -444,18 +449,15 @@ create_uninstall_script() {
 #!/bin/bash
 # SMTP 隧道代理 - 客户端卸载脚本
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "正在清理虚拟环境..."
 deactivate 2>/dev/null || true
 
 echo "正在删除文件..."
-rm -rf /opt/smtp-tunnel/venv
-rm -rf /opt/smtp-tunnel
+rm -rf "$SCRIPT_DIR/venv"
+rm -rf "$SCRIPT_DIR"
 
-echo ""
-echo "注意: /etc/smtp-tunnel 中的配置未被删除"
-echo "如需删除，请手动执行: rm -rf /etc/smtp-tunnel"
-
-systemctl daemon-reload
 echo ""
 echo "SMTP 隧道代理客户端已成功卸载"
 EOF

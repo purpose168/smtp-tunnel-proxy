@@ -18,15 +18,19 @@ NC='\033[0m'          # 无颜色
 # GitHub 原始文件 URL 基础地址
 GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 
-# 安装目录
-INSTALL_DIR="/opt/smtp-tunnel"      # 程序安装目录
-CONFIG_DIR="/etc/smtp-tunnel"       # 配置文件目录
-BIN_DIR="/usr/local/bin"            # 可执行文件目录
-VENV_DIR="/opt/smtp-tunnel/venv"    # Python 虚拟环境目录
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 日志目录
-LOG_DIR="/var/log/smtp-tunnel"
-LOGROTATE_CONF="/etc/logrotate.d/smtp-tunnel"
+# 安装目录（使用脚本执行时的当前路径）
+INSTALL_DIR="$SCRIPT_DIR"           # 程序安装目录
+CONFIG_DIR="$SCRIPT_DIR"            # 配置文件目录
+VENV_DIR="$SCRIPT_DIR/venv"        # Python 虚拟环境目录
+LOG_DIR="$SCRIPT_DIR/logs"           # 日志目录
+
+# BIN_DIR 保持系统级目录不变
+BIN_DIR="/usr/local/bin"            # 可执行文件目录
+
+# 日志文件
 LOG_FILE="$LOG_DIR/install.log"
 
 # 需要下载的 Python 文件
@@ -209,9 +213,9 @@ install_logrotate() {
     print_step "安装 logrotate 配置..."
 
     if [ -f "$INSTALL_DIR/logrotate.conf" ]; then
-        cp "$INSTALL_DIR/logrotate.conf" "$LOGROTATE_CONF"
-        chmod 644 "$LOGROTATE_CONF"
-        print_info "已安装: $LOGROTATE_CONF"
+        cp "$INSTALL_DIR/logrotate.conf" "$LOG_DIR/logrotate.conf"
+        chmod 644 "$LOG_DIR/logrotate.conf"
+        print_info "已安装: $LOG_DIR/logrotate.conf"
     else
         print_warn "未找到 logrotate.conf 文件"
     fi
@@ -511,8 +515,8 @@ install_systemd_service() {
 Description=SMTP 隧道代理服务器
 Documentation=https://github.com/purpose168/smtp-tunnel-proxy
 After=network.target
-RequiresMountsFor=/opt/smtp-tunnel
-RequiresMountsFor=/etc/smtp-tunnel
+RequiresMountsFor=$INSTALL_DIR
+RequiresMountsFor=$CONFIG_DIR
 
 [Service]
 Type=simple
@@ -562,7 +566,7 @@ ReadWritePaths=$LOG_DIR
 # 日志轮转配置
 # 日志文件将在达到大小时自动轮转
 # 使用logrotate进行日志管理
-# 配置文件位于: $LOGROTATE_CONF
+# 配置文件位于: $LOG_DIR/logrotate.conf
 
 # 私有临时目录
 PrivateTmp=true
@@ -585,6 +589,8 @@ create_uninstall_script() {
 #!/bin/bash
 # SMTP 隧道代理 - 卸载脚本
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "正在停止服务..."
 systemctl stop smtp-tunnel 2>/dev/null || true
 systemctl disable smtp-tunnel 2>/dev/null || true
@@ -595,17 +601,7 @@ rm -f /usr/local/bin/smtp-tunnel-adduser
 rm -f /usr/local/bin/smtp-tunnel-deluser
 rm -f /usr/local/bin/smtp-tunnel-listusers
 rm -f /usr/local/bin/smtp-tunnel-update
-rm -f /etc/logrotate.d/smtp-tunnel
-rm -rf /opt/smtp-tunnel
-
-echo ""
-echo "注意: /etc/smtp-tunnel 中的配置未被删除"
-echo "如需删除，请手动执行: rm -rf /etc/smtp-tunnel"
-echo ""
-echo "注意: 日志目录 /var/log/smtp-tunnel 未被删除"
-echo "如需删除，请手动执行: rm -rf /var/log/smtp-tunnel"
-
-systemctl daemon-reload
+rm -rf "$SCRIPT_DIR"
 
 echo ""
 echo "SMTP 隧道代理已成功卸载"
@@ -818,7 +814,7 @@ print_summary() {
     echo -e "${BLUE}日志配置:${NC}"
     echo "   日志目录: $LOG_DIR"
     echo "   安装日志: $LOG_FILE"
-    echo "   logrotate: $LOGROTATE_CONF"
+    echo "   logrotate: $LOG_DIR/logrotate.conf"
     echo ""
     echo -e "${BLUE}用户管理:${NC}"
     echo "   smtp-tunnel-adduser <username>    添加用户并生成客户端 ZIP"
