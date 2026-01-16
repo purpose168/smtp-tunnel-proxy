@@ -28,22 +28,22 @@ UPDATE_LOG="$LOG_DIR/update.log"
 
 # 要更新的文件（仅代码 - 不包括配置/证书/用户）
 # 主入口文件
-MAIN_FILES="server.py client.py common.py generate_certs.py"
+MAIN_FILES="server.py client.py common.py generate_certs.py connection.py"
 
-# 从 common.py 拆分出的模块
-COMMON_MODULES="protocol/__init__.py protocol/core.py protocol/client.py protocol/server.py tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/client.py tunnel/session.py traffic.py smtp_message.py config.py logger.py"
+# 协议模块
+PROTOCOL_MODULES="protocol/__init__.py protocol/core.py protocol/client.py protocol/server.py"
 
-# 从 client.py 拆分出的模块
-CLIENT_MODULES="socks5_server.py tunnel/client.py"
+# 隧道模块
+TUNNEL_MODULES="tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/client.py tunnel/session.py tunnel/server.py"
 
-# 从 server.py 拆分出的模块
-SERVER_MODULES="tunnel/server.py"
+# 其他模块
+OTHER_MODULES="config.py logger.py socks5_server.py"
 
 # 管理脚本
 MANAGEMENT_SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"
 
 # 所有需要更新的文件
-UPDATE_FILES="$MAIN_FILES $COMMON_MODULES $CLIENT_MODULES $SERVER_MODULES $MANAGEMENT_SCRIPTS"
+UPDATE_FILES="$MAIN_FILES $PROTOCOL_MODULES $TUNNEL_MODULES $OTHER_MODULES $MANAGEMENT_SCRIPTS"
 
 # 打印函数
 print_info() {

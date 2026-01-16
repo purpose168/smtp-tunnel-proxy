@@ -33,8 +33,8 @@ LOG_FILE="$LOG_DIR/install-client.log"
 # 主入口文件
 CLIENT_FILES="client.py socks5_server.py"
 
-# 从 common.py 拆分出的模块
-COMMON_MODULES="protocol/__init__.py protocol/core.py protocol/client.py protocol/server.py tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/client.py traffic.py smtp_message.py config.py logger.py connection.py"
+# 从 common.py 拆分出的模块（客户端需要的）
+COMMON_MODULES="protocol/__init__.py protocol/core.py protocol/client.py tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/client.py connection.py config.py logger.py"
 
 # 所有 Python 文件
 PYTHON_FILES="$CLIENT_FILES $COMMON_MODULES"

@@ -34,10 +34,9 @@ def find_project_root() -> str:
     project_files = [
         'server.py', 'client.py', 'common.py', 'requirements.txt',
         'protocol/__init__.py', 'protocol/core.py', 'protocol/client.py', 'protocol/server.py',
-        'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py', 'tunnel/session.py',
-        'traffic.py', 'smtp_message.py', 'config.py', 'logger.py',
-        'socks5_server.py',
-        'tunnel/server.py',
+        'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py', 'tunnel/session.py', 'tunnel/server.py',
+        'config.py', 'logger.py',
+        'socks5_server.py', 'connection.py',
     ]
     
     for root in possible_roots:
@@ -63,23 +62,17 @@ def find_required_files(base_dir: str) -> dict:
         'common.py': 'common.py',
         'requirements.txt': 'requirements.txt',
         'ca.crt': 'ca.crt',
-        # 从 common.py 拆分出的模块
+        # 客户端需要的模块
         'protocol/__init__.py': 'protocol/__init__.py',
         'protocol/core.py': 'protocol/core.py',
         'protocol/client.py': 'protocol/client.py',
-        'protocol/server.py': 'protocol/server.py',
         'tunnel/__init__.py': 'tunnel/__init__.py',
         'tunnel/crypto.py': 'tunnel/crypto.py',
         'tunnel/base.py': 'tunnel/base.py',
         'tunnel/client.py': 'tunnel/client.py',
-        'tunnel/session.py': 'tunnel/session.py',
-        'tunnel/server.py': 'tunnel/server.py',
-        'traffic.py': 'traffic.py',
-        'smtp_message.py': 'smtp_message.py',
         'config.py': 'config.py',
         'logger.py': 'logger.py',
         'connection.py': 'connection.py',
-        # 从 client.py 拆分出的模块
         'socks5_server.py': 'socks5_server.py',
     }
     
@@ -145,15 +138,14 @@ def create_client_package(
     # 查找必需的文件
     files = find_required_files(base_dir)
     
-    # 客户端文件列表（包括拆分后的所有模块）
+    # 客户端文件列表（只包含客户端需要的模块）
     client_files = [
         # 主入口文件
         'client.py', 'common.py',
-        # 从 common.py 拆分出的模块
+        # 客户端需要的模块
         'protocol/__init__.py', 'protocol/core.py', 'protocol/client.py',
         'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py',
-        'traffic.py', 'smtp_message.py', 'config.py', 'logger.py', 'connection.py',
-        # 从 client.py 拆分出的模块
+        'config.py', 'logger.py', 'connection.py',
         'socks5_server.py',
         'requirements.txt'
     ]
@@ -237,15 +229,14 @@ Linux/Mac: 运行 ./start.sh
 - common.py      - 共享库文件（兼容层）
 
 ### 核心模块
-- protocol.py    - 二进制协议定义
-- crypto.py      - 加密和认证功能
-- traffic.py     - 流量伪装（DPI 规避）
-- smtp_message.py - MIME 邮件生成
+- protocol/      - 二进制协议定义
+- tunnel/        - 隧道模块（包含客户端功能）
 - config.py      - 配置管理
+- logger.py      - 日志管理
 
 ### 客户端模块
 - socks5_server.py   - SOCKS5 服务器
-- tunnel/           - 隧道模块（包含客户端和服务器共享功能）
+- connection.py      - 连接管理
 
 ### 配置文件
 - config.yaml    - 您的配置文件（已预配置）
