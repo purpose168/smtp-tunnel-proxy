@@ -35,7 +35,7 @@ LOG_FILE="$LOG_DIR/install.log"
 MAIN_FILES="server.py common.py generate_certs.py connection.py"
 
 # 从 common.py 拆分出的模块
-COMMON_MODULES="protocol/__init__.py protocol/core.py protocol/client.py protocol/server.py tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/session.py traffic.py smtp_message.py config.py logger.py"
+COMMON_MODULES="protocol/__init__.py protocol/core.py protocol/client.py protocol/server.py tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/client.py tunnel/session.py traffic.py smtp_message.py config.py logger.py"
 
 # 从 server.py 拆分出的模块
 SERVER_MODULES="tunnel/server.py"   
