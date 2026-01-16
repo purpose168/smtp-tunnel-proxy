@@ -28,6 +28,7 @@ SMTP 隧道统一模块
 
 from .base import BaseTunnel
 from .client import TunnelClient
+from .crypto import TunnelCrypto
 
 # 延迟导入 TunnelSession 和 TunnelServer 以避免循环导入
 def __getattr__(name):
@@ -42,6 +43,7 @@ def __getattr__(name):
 __all__ = [
     'BaseTunnel',
     'TunnelClient',
+    'TunnelCrypto',
     'TunnelSession',
     'TunnelServer',
 ]

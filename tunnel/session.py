@@ -293,7 +293,7 @@ class TunnelSession(BaseTunnel):
             return True
             
         except Exception as e:
-            logger.error(f"握手错误: {e}")
+            self._log(logging.ERROR, f"握手错误: {e}")
             return False
     
     async def process_frame(self, frame_type: int, channel_id: int, payload: bytes):
