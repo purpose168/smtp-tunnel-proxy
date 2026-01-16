@@ -1,22 +1,5 @@
-# SMTP 隧道 - 用户配置
-#
-# 每个用户包含：
-#   - secret: 认证密钥（必需）
-#   - whitelist: 允许的 IP 地址/CIDR 列表（可选）
-#   - logging: 为此用户启用日志记录（可选，默认值：true）
-#
-# 使用 smtp-tunnel-adduser 添加新用户
-# 使用 smtp-tunnel-deluser 删除用户
-# 使用 smtp-tunnel-listusers 列出所有用户
-
 users:
-  # 示例用户（取消注释并修改）：
-  # alice:  # 用户名
-  #   secret: "使用-adduser-脚本生成"  # 认证密钥
-  #   whitelist:  # 白名单 IP 地址列表
-  #     - "192.168.1.100"  # 允许的 IP 地址
-  #     - "10.0.0.0/8"  # 允许的 CIDR 网段
-  #   logging: true  # 启用日志记录
-  #
-  # 简单格式（仅包含密钥）：
-  # bob: "bobs-secret-here"  # 用户名和密钥
+  testuser:
+    logging: true
+    secret: ir9kGZelsUeUC92KszPRECA3vg40jmlauMR4OInmEkM
+    whitelist: []
