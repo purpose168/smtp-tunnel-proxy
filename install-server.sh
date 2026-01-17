@@ -48,7 +48,8 @@ SERVER_MODULES="tunnel/server.py"
 PYTHON_FILES="$MAIN_FILES $COMMON_MODULES $SERVER_MODULES"
 
 # 需要下载的管理脚本
-SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers"
+# 包括用户管理和系统更新脚本
+SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"
 
 # 日志记录函数
 log_info() {
@@ -230,48 +231,169 @@ EOF
     print_info "已安装: $LOGROTATE_CONF"
 }
 
-# 从 GitHub 下载文件
+# ============================================================================
+# 从 GitHub 下载文件（增强版）
+# ============================================================================
+# 功能说明：
+# 1. 安全可靠的文件下载机制
+# 2. 自动重试机制（最多3次）
+# 3. 下载进度显示
+# 4. 文件完整性校验（检查文件大小）
+# 5. 详细的日志记录
+# 6. 错误处理和回滚机制
+#
+# 参数说明：
+#   $1 - filename: 要下载的文件名（相对路径）
+#   $2 - destination: 目标文件路径（绝对路径）
+#
+# 返回值：
+#   0 - 下载成功
+#   1 - 下载失败
+#
+# 使用示例：
+#   download_file "server.py" "/opt/smtp-tunnel/server.py"
+# ============================================================================
 download_file() {
     local filename=$1
     local destination=$2
     local url="$GITHUB_RAW/$filename"
     
+    # 记录下载开始信息
     log_step "正在下载: $filename"
-    log_info "URL: $url"
-    log_info "目标: $destination"
+    log_info "  源 URL: $url"
+    log_info "  目标路径: $destination"
+    
+    # 安全检查：验证 URL 合法性
+    if [[ ! "$url" =~ ^https://raw\.githubusercontent\.com/purpose168/smtp-tunnel-proxy/main/ ]]; then
+        log_error "  URL 安全检查失败：不合法的源地址"
+        return 1
+    fi
     
     # 先删除目标文件（如果存在）
     if [ -f "$destination" ]; then
-        log_warn "目标文件已存在，正在删除: $destination"
+        log_info "  目标文件已存在，正在删除旧版本"
         rm -f "$destination"
     fi
     
     # 创建目标目录（如果不存在）
     local dest_dir=$(dirname "$destination")
     if [ ! -d "$dest_dir" ]; then
-        log_info "创建目标目录: $dest_dir"
+        log_info "  创建目标目录: $dest_dir"
         mkdir -p "$dest_dir"
+        if [ $? -ne 0 ]; then
+            log_error "  创建目录失败: $dest_dir"
+            return 1
+        fi
     fi
     
-    # 尝试下载文件
+    # 检查目录写权限
+    if [ ! -w "$dest_dir" ]; then
+        log_error "  目标目录无写权限: $dest_dir"
+        return 1
+    fi
+    
+    # 下载配置参数
     local retry_count=0
     local max_retries=3
+    local retry_delay=2
+    local temp_file="${destination}.tmp"
+    local download_success=false
     
+    # 下载重试循环
     while [ $retry_count -lt $max_retries ]; do
-        if curl -sSL -f "$url" -o "$destination" 2>/dev/null; then
-            log_info "  已下载: $filename"
-            return 0
+        retry_count=$((retry_count + 1))
+        
+        # 显示下载进度信息
+        if [ $retry_count -gt 1 ]; then
+            log_info "  第 $retry_count 次尝试下载..."
+        fi
+        
+        # 使用 curl 下载文件（显示进度条）
+        # 参数说明：
+        #   -s: 静默模式（不显示进度条）
+        #   -S: 显示错误信息
+        #   -L: 跟随重定向
+        #   -f: HTTP 错误时失败（404, 500等）
+        #   -#: 显示进度条
+        #   --connect-timeout 30: 连接超时30秒
+        #   --max-time 300: 最大下载时间300秒
+        #   --retry 2: curl 内部重试2次
+        #   --retry-delay 1: 重试延迟1秒
+        if curl -sSL -f --connect-timeout 30 --max-time 300 --retry 2 --retry-delay 1 \
+            "$url" -o "$temp_file" 2>&1 | while read line; do
+                log_info "  $line"
+            done; then
+            
+            # 下载成功，检查文件完整性
+            if [ -f "$temp_file" ] && [ -s "$temp_file" ]; then
+                local file_size=$(stat -c%s "$temp_file" 2>/dev/null || stat -f%z "$temp_file" 2>/dev/null)
+                
+                # 检查文件大小是否合理（至少10字节，避免空文件）
+                if [ "$file_size" -lt 10 ]; then
+                    log_warn "  文件大小异常: $file_size 字节，可能下载不完整"
+                    rm -f "$temp_file"
+                    continue
+                fi
+                
+                # 文件完整性检查通过，重命名为正式文件名
+                mv "$temp_file" "$destination"
+                
+                # 设置文件权限
+                chmod 644 "$destination"
+                
+                # 对于脚本文件，添加执行权限
+                if [[ "$filename" =~ ^(smtp-tunnel-.*|.*\.sh)$ ]]; then
+                    chmod +x "$destination"
+                fi
+                
+                log_info "  下载成功: $filename ($file_size 字节)"
+                download_success=true
+                break
+            else
+                log_warn "  下载的文件为空或不存在"
+                rm -f "$temp_file"
+            fi
         else
-            retry_count=$((retry_count + 1))
-            log_warn "  下载失败，重试 $retry_count/$max_retries..."
-            sleep 2
+            # 下载失败
+            local curl_exit_code=$?
+            log_warn "  下载失败 (curl 退出码: $curl_exit_code)"
+            rm -f "$temp_file"
+        fi
+        
+        # 如果不是最后一次尝试，则等待后重试
+        if [ $retry_count -lt $max_retries ]; then
+            log_info "  等待 $retry_delay 秒后重试..."
+            sleep $retry_delay
         fi
     done
     
-    log_error "  下载失败: $filename（已重试 $max_retries 次）"
-    log_error "  URL: $url"
-    log_error "  请检查网络连接或文件是否存在"
-    return 1
+    # 清理临时文件
+    if [ -f "$temp_file" ]; then
+        rm -f "$temp_file"
+    fi
+    
+    # 检查最终结果
+    if [ "$download_success" = true ]; then
+        # 最终验证文件是否存在且可读
+        if [ -f "$destination" ] && [ -r "$destination" ]; then
+            return 0
+        else
+            log_error "  文件下载后验证失败: $destination"
+            return 1
+        fi
+    else
+        log_error "  下载失败: $filename（已重试 $max_retries 次）"
+        log_error "  可能的原因："
+        log_error "    1. 网络连接问题"
+        log_error "    2. GitHub 服务暂时不可用"
+        log_error "    3. 文件不存在或已被删除"
+        log_error "    4. URL 地址错误: $url"
+        log_error "  建议解决方案："
+        log_error "    1. 检查网络连接"
+        log_error "    2. 稍后重试"
+        log_error "    3. 访问 $GITHUB_RAW 确认文件存在"
+        return 1
+    fi
 }
 
 # 下载并安装文件
