@@ -23,7 +23,7 @@ import sys  # 系统功能
 
 # 本地模块导入
 from logger import LoggerManager, get_logger, add_context, clear_context
-from common import (
+from config import (
     load_config,  # 加载服务器配置
     load_users,  # 加载用户配置
     ServerConfig,  # 服务器配置数据类

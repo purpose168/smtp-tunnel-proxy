@@ -14,7 +14,7 @@ import sys       # 系统相关功能库
 # 将当前目录添加到导入路径，以便导入本地模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from common import load_users  # 导入用户加载函数
+from config import load_users  # 导入用户加载函数
 
 
 def main():

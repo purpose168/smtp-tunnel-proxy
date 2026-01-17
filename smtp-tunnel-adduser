@@ -19,7 +19,7 @@ import pathlib   # 路径处理库
 # 将当前目录添加到导入路径，以便导入本地模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from common import load_users, save_users, load_config, UserConfig  # 导入通用函数和用户配置类
+from config import load_users, save_users, load_config, UserConfig  # 导入通用函数和用户配置类
 
 
 def find_project_root() -> str:
