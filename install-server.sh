@@ -32,7 +32,7 @@ BIN_DIR="/usr/local/bin"            # 可执行文件目录
 LOG_FILE="$LOG_DIR/install.log"
 
 # logrotate 配置文件
-LOGROTATE_CONF="$LOG_DIR/logrotate.conf"
+LOGROTATE_CONF="$CONFIG_DIR/logrotate.conf"
 
 # 需要下载的 Python 文件
 # 主入口文件
@@ -211,7 +211,7 @@ setup_log_directory() {
 install_logrotate() {
     print_step "安装 logrotate 配置..."
     
-    cat > "$LOG_DIR/logrotate.conf" << 'EOF'
+    cat > "$LOGROTATE_CONF" << 'EOF'
 $LOG_DIR/*.log {
     daily
     rotate 10
@@ -736,7 +736,7 @@ ReadWritePaths=$LOG_DIR
 # 日志轮转配置
 # 日志文件将在达到大小时自动轮转
 # 使用logrotate进行日志管理
-# 配置文件位于: $LOG_DIR/logrotate.conf
+# 配置文件位于: $CONFIG_DIR/logrotate.conf
 
 # 私有临时目录
 PrivateTmp=true

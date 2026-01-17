@@ -46,7 +46,7 @@ ReadWritePaths=/opt/smtp-tunnel
 # 日志轮转配置
 # 日志文件将在达到大小时自动轮转
 # 使用logrotate进行日志管理
-# 配置文件位于: /opt/smtp-tunnel/logs/logrotate.conf
+# 配置文件位于: /opt/smtp-tunnel/config/logrotate.conf
 
 # 私有临时目录
 PrivateTmp=true
