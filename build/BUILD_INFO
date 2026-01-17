@@ -1,5 +1,5 @@
 Package: smtp-tunnel-proxy
-Version: 3.1.0
-Build Date: 2026-01-17 10:58:38
+Version: 3.2.0
+Build Date: 2026-01-17 12:55:17
 Git Branch: main
-Git Commit: c17c5b29e9970375b434c494c344bef8acb70329
+Git Commit: 435e1234ba18b6cdded11c18cf6669f0815468b4

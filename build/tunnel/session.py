@@ -277,7 +277,7 @@ class TunnelSession(BaseTunnel):
             
             # 检查每用户 IP 白名单
             if self.user_config and self.user_config.whitelist:
-                from common import IPWhitelist
+                from config import IPWhitelist
                 user_whitelist = IPWhitelist(self.user_config.whitelist)
                 if not user_whitelist.is_allowed(self.client_ip):
                     logger.warning(f"用户 {username} 不允许从 IP {self.client_ip} 连接")

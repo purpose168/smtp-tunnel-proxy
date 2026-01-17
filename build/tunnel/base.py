@@ -25,6 +25,8 @@ from protocol import (
     make_frame
 )
 
+logger = logging.getLogger('smtp-tunnel-base')
+
 
 class BaseTunnel(ABC):
     """
@@ -112,23 +114,22 @@ class BaseTunnel(ABC):
         """
         logger.info(f"升级到 TLS 连接（server_side={server_side}, server_hostname={server_hostname}）")
         
-        transport = self.writer.transport
-        protocol = self.writer._protocol
-        loop = asyncio.get_event_loop()
-        
         try:
+            reader = self.reader
+            writer = self.writer
+            
             if server_side:
-                new_transport = await loop.start_tls(
-                    transport, protocol, ssl_context, server_side=True
+                new_reader, new_writer = await asyncio.start_tls(
+                    reader, writer, ssl_context, server_side=True
                 )
             else:
-                new_transport = await loop.start_tls(
-                    transport, protocol, ssl_context,
+                new_reader, new_writer = await asyncio.start_tls(
+                    reader, writer, ssl_context,
                     server_hostname=server_hostname
                 )
             
-            self.writer._transport = new_transport
-            self.reader._transport = new_transport
+            self.reader = new_reader
+            self.writer = new_writer
             logger.info("TLS 连接升级成功")
         except Exception as e:
             logger.error(f"TLS 连接升级失败: {e}")

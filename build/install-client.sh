@@ -14,6 +14,7 @@
 #   - 安装 Python 依赖包
 #   - 创建默认配置文件（如果不存在）
 #   - 生成管理脚本（start.sh, stop.sh, status.sh）
+#   - 下载更新脚本（smtp-tunnel-client-update）
 #   - 安装 systemd 服务（如果可用）
 #
 
@@ -50,8 +51,14 @@ CLIENT_FILES="client.py socks5_server.py"
 # 从 common.py 拆分出的模块（客户端需要的）
 COMMON_MODULES="protocol/__init__.py protocol/core.py protocol/client.py tunnel/__init__.py tunnel/crypto.py tunnel/base.py tunnel/client.py connection.py config.py logger.py"
 
+# 管理脚本
+MANAGEMENT_SCRIPTS="smtp-tunnel-client-update"
+
 # 所有 Python 文件
 PYTHON_FILES="$CLIENT_FILES $COMMON_MODULES"
+
+# 所有需要下载的文件
+ALL_FILES="$PYTHON_FILES $MANAGEMENT_SCRIPTS"
 
 # 日志记录函数
 log_info() {
@@ -257,6 +264,14 @@ install_files() {
         fi
     done
     
+    # 下载管理脚本
+    for script in $MANAGEMENT_SCRIPTS; do
+        if ! download_file "$script" "$INSTALL_DIR/$script"; then
+            print_error "下载管理脚本失败: $script"
+            exit 1
+        fi
+    done
+    
     # 下载 requirements.txt
     if ! download_file "requirements.txt" "$INSTALL_DIR/requirements.txt"; then
         print_error "下载 requirements.txt 失败"
@@ -268,6 +283,11 @@ install_files() {
     
     # 设置 Python 文件权限
     find "$INSTALL_DIR" -name "*.py" -exec chmod 644 {} \;
+    
+    # 设置管理脚本执行权限
+    for script in $MANAGEMENT_SCRIPTS; do
+        chmod +x "$INSTALL_DIR/$script" 2>/dev/null || true
+    done
     
     # 设置目录权限
     find "$INSTALL_DIR" -type d -exec chmod 755 {} \;
@@ -518,6 +538,19 @@ non_interactive_setup() {
             print_error "下载客户端文件失败"
             exit 1
         fi
+    fi
+    
+    # 检查更新脚本是否存在
+    if [ ! -f "$INSTALL_DIR/smtp-tunnel-client-update" ]; then
+        print_info "下载更新脚本..."
+        if ! download_file "smtp-tunnel-client-update" "$INSTALL_DIR/smtp-tunnel-client-update"; then
+            print_warn "下载更新脚本失败，您可以稍后手动下载"
+        else
+            chmod +x "$INSTALL_DIR/smtp-tunnel-client-update"
+            print_info "更新脚本已安装"
+        fi
+    else
+        print_info "更新脚本已存在"
     fi
     
     # 创建虚拟环境
@@ -1113,6 +1146,7 @@ print_summary() {
     echo "   $INSTALL_DIR/start.sh    - 启动客户端"
     echo "   $INSTALL_DIR/stop.sh     - 停止客户端"
     echo "   $INSTALL_DIR/status.sh   - 查看状态"
+    echo "   $INSTALL_DIR/smtp-tunnel-client-update - 更新客户端"
     echo ""
     
     # 检查 systemd 服务是否已安装
@@ -1144,11 +1178,13 @@ print_summary() {
         echo "   2. 启动服务: sudo systemctl start smtp-tunnel-client"
         echo "   3. 查看状态: sudo systemctl status smtp-tunnel-client"
         echo "   4. 查看日志: sudo journalctl -u smtp-tunnel-client -f"
+        echo "   5. 更新客户端: $INSTALL_DIR/smtp-tunnel-client-update"
     else
         echo "   1. 编辑配置文件: $INSTALL_DIR/config.yaml"
         echo "   2. 启动客户端: $INSTALL_DIR/start.sh"
         echo "   3. 查看状态: $INSTALL_DIR/status.sh"
         echo "   4. 查看日志: tail -f $INSTALL_DIR/logs/client.log"
+        echo "   5. 更新客户端: $INSTALL_DIR/smtp-tunnel-client-update"
     fi
     echo ""
     echo -e "${YELLOW}提示:${NC}"
