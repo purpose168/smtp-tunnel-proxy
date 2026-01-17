@@ -588,7 +588,7 @@ interactive_setup() {
     fi
     
     # 检查证书文件
-    check_certificates
+    check_certificates_simple
     
     # 生成管理脚本
     echo ""
@@ -1047,7 +1047,7 @@ start_systemd_service() {
 }
 
 # 检查证书文件
-check_certificates() {
+check_certificates_simple() {
     print_step "检查证书文件..."
     
     local cert_missing=false
@@ -1095,17 +1095,20 @@ check_certificates() {
         echo "      - /opt/smtp-tunnel/config/client-<username>.crt"
         echo "      - /opt/smtp-tunnel/config/client-<username>.key"
         echo ""
-        echo "   3. 使用 scp 命令下载证书文件："
-        echo "      scp root@server:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
-        echo "      scp root@server:/opt/smtp-tunnel/config/client-<username>.crt $CONFIG_DIR/client.crt"
-        echo "      scp root@server:/opt/smtp-tunnel/config/client-<username>.key $CONFIG_DIR/client.key"
+        echo -e "${YELLOW}使用证书下载脚本:${NC}"
+        echo "   运行以下命令下载证书："
+        echo "      ./download-certs.sh --server <服务器地址> --username <用户名>"
         echo ""
-        echo "   4. 或者一次性下载所有证书："
-        echo "      scp root@server:/opt/smtp-tunnel/config/client-<username>.* $CONFIG_DIR/"
-        echo "      scp root@server:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
+        echo -e "${YELLOW}或使用 scp 手动下载:${NC}"
+        echo "   scp root@server:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
+        echo "   scp root@server:/opt/smtp-tunnel/config/client-<username>.crt $CONFIG_DIR/client.crt"
+        echo "   scp root@server:/opt/smtp-tunnel/config/client-<username>.key $CONFIG_DIR/client.key"
         echo ""
         echo -e "${YELLOW}示例:${NC}"
         echo "   假设用户名为 'testuser'，服务器地址为 '192.168.1.100'："
+        echo "   ./download-certs.sh --server 192.168.1.100 --username testuser"
+        echo ""
+        echo "   或使用 scp："
         echo "   scp root@192.168.1.100:/opt/smtp-tunnel/config/client-testuser.* $CONFIG_DIR/"
         echo "   scp root@192.168.1.100:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
         echo ""
@@ -1117,69 +1120,27 @@ check_certificates() {
         echo ""
         
         # 询问是否现在下载证书
-        print_ask "是否现在从服务器下载证书？[y/N]: "
+        print_ask "是否现在使用证书下载脚本下载证书？[y/N]: "
         read -p "    " DOWNLOAD_CERTS < /dev/tty
         
         if [ "$DOWNLOAD_CERTS" = "y" ] || [ "$DOWNLOAD_CERTS" = "Y" ]; then
             echo ""
-            print_info "请输入服务器信息："
+            print_info "启动证书下载脚本..."
             echo ""
             
-            # 询问服务器地址
-            print_ask "服务器地址: "
-            read -p "    " SERVER_ADDR < /dev/tty
-            
-            if [ -z "$SERVER_ADDR" ]; then
-                print_warn "服务器地址不能为空"
-                return 1
+            # 调用证书下载脚本
+            if [ -f "$SCRIPT_DIR/download-certs.sh" ]; then
+                "$SCRIPT_DIR/download-certs.sh"
+                
+                # 重新检查证书文件
+                if check_certificates_simple; then
+                    echo ""
+                    print_info "证书文件已成功下载"
+                fi
+            else
+                print_error "证书下载脚本不存在: $SCRIPT_DIR/download-certs.sh"
+                print_info "请手动下载证书文件"
             fi
-            
-            # 询问用户名
-            print_ask "客户端用户名: "
-            read -p "    " CLIENT_USERNAME < /dev/tty
-            
-            if [ -z "$CLIENT_USERNAME" ]; then
-                print_warn "用户名不能为空"
-                return 1
-            fi
-            
-            echo ""
-            print_info "正在从服务器下载证书文件..."
-            echo ""
-            
-            # 下载 CA 证书
-            if ! scp "root@${SERVER_ADDR}:/opt/smtp-tunnel/config/ca.crt" "$CONFIG_DIR/ca.crt"; then
-                print_error "下载 CA 证书失败"
-                return 1
-            fi
-            print_info "✓ 已下载: ca.crt"
-            
-            # 下载客户端证书
-            if ! scp "root@${SERVER_ADDR}:/opt/smtp-tunnel/config/client-${CLIENT_USERNAME}.crt" "$CONFIG_DIR/client.crt"; then
-                print_error "下载客户端证书失败"
-                return 1
-            fi
-            print_info "✓ 已下载: client.crt"
-            
-            # 下载客户端私钥
-            if ! scp "root@${SERVER_ADDR}:/opt/smtp-tunnel/config/client-${CLIENT_USERNAME}.key" "$CONFIG_DIR/client.key"; then
-                print_error "下载客户端私钥失败"
-                return 1
-            fi
-            print_info "✓ 已下载: client.key"
-            
-            # 设置证书文件权限
-            chmod 600 "$CONFIG_DIR/ca.crt"
-            chmod 600 "$CONFIG_DIR/client.crt"
-            chmod 600 "$CONFIG_DIR/client.key"
-            
-            echo ""
-            print_info "证书文件下载完成！"
-            print_info "证书文件权限已设置为 600"
-            echo ""
-            
-            # 验证证书文件
-            verify_certificates
         else
             echo ""
             print_info "跳过证书下载"
@@ -1193,59 +1154,6 @@ check_certificates() {
     else
         echo ""
         print_info "所有证书文件已存在"
-        echo ""
-        
-        # 验证证书文件
-        verify_certificates
-    fi
-}
-
-# 验证证书文件
-verify_certificates() {
-    print_step "验证证书文件..."
-    
-    local cert_valid=true
-    
-    # 检查 CA 证书
-    if [ -f "$CONFIG_DIR/ca.crt" ]; then
-        if openssl x509 -in "$CONFIG_DIR/ca.crt" -noout -checkend 0 2>/dev/null; then
-            print_info "✓ CA 证书有效: $CONFIG_DIR/ca.crt"
-        else
-            print_warn "✗ CA 证书无效或已过期: $CONFIG_DIR/ca.crt"
-            cert_valid=false
-        fi
-    fi
-    
-    # 检查客户端证书
-    if [ -f "$CONFIG_DIR/client.crt" ]; then
-        if openssl x509 -in "$CONFIG_DIR/client.crt" -noout -checkend 0 2>/dev/null; then
-            print_info "✓ 客户端证书有效: $CONFIG_DIR/client.crt"
-        else
-            print_warn "✗ 客户端证书无效或已过期: $CONFIG_DIR/client.crt"
-            cert_valid=false
-        fi
-    fi
-    
-    # 检查私钥和证书是否匹配
-    if [ -f "$CONFIG_DIR/client.crt" ] && [ -f "$CONFIG_DIR/client.key" ]; then
-        local cert_modulus=$(openssl x509 -noout -modulus -in "$CONFIG_DIR/client.crt" 2>/dev/null | openssl md5)
-        local key_modulus=$(openssl rsa -noout -modulus -in "$CONFIG_DIR/client.key" 2>/dev/null | openssl md5)
-        
-        if [ "$cert_modulus" = "$key_modulus" ]; then
-            print_info "✓ 客户端证书和私钥匹配"
-        else
-            print_warn "✗ 客户端证书和私钥不匹配"
-            cert_valid=false
-        fi
-    fi
-    
-    if [ "$cert_valid" = true ]; then
-        echo ""
-        print_info "所有证书文件验证通过"
-        echo ""
-    else
-        echo ""
-        print_warn "证书文件验证失败，请检查证书文件"
         echo ""
     fi
 }
