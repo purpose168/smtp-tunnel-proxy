@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 安装目录（使用脚本执行时当前路径下的 smtp-tunnel 文件夹）
 INSTALL_DIR="$SCRIPT_DIR/smtp-tunnel"           # 程序安装目录
-CONFIG_DIR="$SCRIPT_DIR/smtp-tunnel"            # 配置文件目录
+CONFIG_DIR="$SCRIPT_DIR/smtp-tunnel/config"            # 配置文件目录
 VENV_DIR="$SCRIPT_DIR/smtp-tunnel/venv"        # Python 虚拟环境目录
 LOG_DIR="$SCRIPT_DIR/smtp-tunnel/logs"           # 日志目录
 
@@ -176,6 +176,22 @@ create_directories() {
     print_info "已创建: $CONFIG_DIR"
 }
 
+# 设置日志目录
+setup_log_directory() {
+    print_step "设置日志目录..."
+    
+    # 创建日志目录
+    mkdir -p "$LOG_DIR"
+    chmod 755 "$LOG_DIR"
+    
+    # 创建日志文件
+    touch "$LOG_FILE"
+    chmod 644 "$LOG_FILE"
+    
+    print_info "已创建: $LOG_DIR"
+    print_info "已创建: $LOG_FILE"
+}
+
 # 从 GitHub 下载文件
 download_file() {
     local filename=$1
@@ -237,6 +253,25 @@ install_files() {
         print_error "下载 requirements.txt 失败"
         exit 1
     fi
+    
+    # 设置文件权限
+    print_info "设置文件权限..."
+    
+    # 设置 Python 文件权限
+    find "$INSTALL_DIR" -name "*.py" -exec chmod 644 {} \;
+    
+    # 设置目录权限
+    find "$INSTALL_DIR" -type d -exec chmod 755 {} \;
+    
+    # 设置子目录权限
+    if [ -d "$INSTALL_DIR/protocol" ]; then
+        chmod 755 "$INSTALL_DIR/protocol"
+    fi
+    if [ -d "$INSTALL_DIR/tunnel" ]; then
+        chmod 755 "$INSTALL_DIR/tunnel"
+    fi
+    
+    print_info "文件权限设置完成"
 }
 
 # 检查 Python 虚拟环境
@@ -502,20 +537,171 @@ interactive_setup() {
         print_info "您可以使用现有的虚拟环境或系统 Python"
     fi
     
-    # 询问是否下载客户端文件
-    print_ask "是否下载客户端文件？[Y/n]: "
-    read -p "    " DOWNLOAD_CLIENT < /dev/tty
-    
-    if [ -z "$DOWNLOAD_CLIENT" ] || [ "$DOWNLOAD_CLIENT" = "y" ] || [ "$DOWNLOAD_CLIENT" = "Y" ]; then
-        # 下载客户端文件
-        if ! install_files; then
-            print_error "下载客户端文件失败"
-            exit 1
+    # 检查客户端文件是否已存在
+    if [ -f "$INSTALL_DIR/client.py" ] && [ -f "$INSTALL_DIR/socks5_server.py" ]; then
+        print_info "客户端文件已存在，跳过下载"
+        echo ""
+        print_ask "是否重新下载客户端文件？[y/N]: "
+        read -p "    " REDOWNLOAD_CLIENT < /dev/tty
+        
+        if [ "$REDOWNLOAD_CLIENT" = "y" ] || [ "$REDOWNLOAD_CLIENT" = "Y" ]; then
+            # 下载客户端文件
+            if ! install_files; then
+                print_error "下载客户端文件失败"
+                exit 1
+            fi
         fi
     else
-        print_info "跳过客户端文件下载"
+        # 询问是否下载客户端文件
+        print_ask "是否下载客户端文件？[Y/n]: "
+        read -p "    " DOWNLOAD_CLIENT < /dev/tty
+        
+        if [ -z "$DOWNLOAD_CLIENT" ] || [ "$DOWNLOAD_CLIENT" = "y" ] || [ "$DOWNLOAD_CLIENT" = "Y" ]; then
+            # 下载客户端文件
+            if ! install_files; then
+                print_error "下载客户端文件失败"
+                exit 1
+            fi
+        else
+            print_info "跳过客户端文件下载"
+            echo ""
+            print_info "您可以使用现有的客户端文件"
+        fi
+    fi
+    
+    # 配置文件处理
+    echo ""
+    print_step "配置文件设置"
+    
+    if [ -f "$CONFIG_DIR/config.yaml" ]; then
+        print_info "配置文件已存在: $CONFIG_DIR/config.yaml"
+        print_ask "是否重新创建配置文件？[y/N]: "
+        read -p "    " RECREATE_CONFIG < /dev/tty
+        
+        if [ "$RECREATE_CONFIG" = "y" ] || [ "$RECREATE_CONFIG" = "Y" ]; then
+            create_config_file
+        fi
+    else
+        print_info "创建默认配置文件..."
+        create_config_file
+    fi
+    
+    # 检查证书文件
+    check_certificates
+}
+
+# 创建配置文件
+create_config_file() {
+    cat > "$CONFIG_DIR/config.yaml" << 'EOF'
+# SMTP 隧道代理客户端配置文件
+
+# 服务器配置
+server:
+  # 服务器地址
+  host: "your-server-ip"
+  # 服务器端口
+  port: 8443
+  # CA 证书路径（从服务器获取）
+  ca_cert: "config/ca.crt"
+  # 客户端证书路径（从服务器获取）
+  client_cert: "config/client.crt"
+  # 客户端私钥路径（从服务器获取）
+  client_key: "config/client.key"
+
+# SOCKS5 代理配置
+socks5:
+  # 监听地址
+  host: "127.0.0.1"
+  # 监听端口
+  port: 1080
+  # 允许的客户端地址（空表示允许所有）
+  allowed_clients: []
+
+# 日志配置
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  # 日志文件路径
+  file: "logs/client.log"
+  # 是否启用控制台日志
+  console: true
+  # 是否启用文件日志
+  file_enabled: true
+  # 日志文件最大大小（MB）
+  max_size: 10
+  # 保留的日志文件数量
+  backup_count: 5
+
+# 连接配置
+connection:
+  # 连接超时（秒）
+  timeout: 30
+  # 心跳间隔（秒）
+  heartbeat_interval: 60
+  # 最大重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_interval: 5
+
+# 加密配置
+crypto:
+  # 加密算法: AES, ChaCha20
+  algorithm: "AES"
+  # 密钥长度（位）
+  key_length: 256
+EOF
+    
+    chmod 600 "$CONFIG_DIR/config.yaml"
+    print_info "已创建配置文件: $CONFIG_DIR/config.yaml"
+    print_warn "请编辑配置文件，设置服务器地址和证书路径"
+}
+
+# 检查证书文件
+check_certificates() {
+    print_step "检查证书文件..."
+    
+    local cert_missing=false
+    
+    # 检查 CA 证书
+    if [ ! -f "$CONFIG_DIR/ca.crt" ]; then
+        print_warn "CA 证书未找到: $CONFIG_DIR/ca.crt"
+        cert_missing=true
+    else
+        print_info "CA 证书已存在: $CONFIG_DIR/ca.crt"
+    fi
+    
+    # 检查客户端证书
+    if [ ! -f "$CONFIG_DIR/client.crt" ]; then
+        print_warn "客户端证书未找到: $CONFIG_DIR/client.crt"
+        cert_missing=true
+    else
+        print_info "客户端证书已存在: $CONFIG_DIR/client.crt"
+    fi
+    
+    # 检查客户端私钥
+    if [ ! -f "$CONFIG_DIR/client.key" ]; then
+        print_warn "客户端私钥未找到: $CONFIG_DIR/client.key"
+        cert_missing=true
+    else
+        print_info "客户端私钥已存在: $CONFIG_DIR/client.key"
+    fi
+    
+    if [ "$cert_missing" = true ]; then
         echo ""
-        print_info "您可以使用现有的客户端文件"
+        print_warn "缺少证书文件！"
+        echo ""
+        echo "请从服务器获取以下证书文件："
+        echo "  1. CA 证书: ca.crt"
+        echo "  2. 客户端证书: client.crt"
+        echo "  3. 客户端私钥: client.key"
+        echo ""
+        echo "获取方式："
+        echo "  - 在服务器上运行: sudo smtp-tunnel-adduser <username>"
+        echo "  - 下载生成的证书文件到 $CONFIG_DIR"
+        echo ""
+        echo "示例："
+        echo "  scp root@server:/opt/smtp-tunnel/config/client-<username>.* $CONFIG_DIR/"
+        echo ""
     fi
 }
 
@@ -549,6 +735,18 @@ print_summary() {
     echo "   如果您使用虚拟环境，请先激活虚拟环境："
     echo "     source $VENV_DIR/bin/activate"
     echo ""
+    echo -e "${YELLOW}防火墙配置:${NC}"
+    echo "   如果需要从其他机器访问 SOCKS5 代理，请开放防火墙端口："
+    echo ""
+    echo "   Ubuntu/Debian:"
+    echo "     sudo ufw allow 1080/tcp"
+    echo ""
+    echo "   CentOS/RHEL:"
+    echo "     sudo firewall-cmd --permanent --add-port=1080/tcp"
+    echo "     sudo firewall-cmd --reload"
+    echo ""
+    echo "   或者，如果您只想在本地使用（默认配置），无需配置防火墙。"
+    echo ""
 }
 
 # 验证安装
@@ -559,16 +757,6 @@ verify_installation() {
     if [ ! -d "$INSTALL_DIR" ]; then
         log_error "安装目录不存在: $INSTALL_DIR"
         return 1
-    fi
-    
-    # 检查虚拟环境
-    if [ ! -d "$VENV_DIR" ]; then
-        log_warn "虚拟环境未创建（将在交互式设置中创建）"
-    fi
-    
-    # 检查客户端文件
-    if [ ! -f "$INSTALL_DIR/client.py" ]; then
-        log_warn "客户端文件未安装（将在交互式设置中下载）"
     fi
     
     log_info "安装验证通过"
@@ -604,7 +792,7 @@ main() {
     detect_os
     install_dependencies
     create_directories
-    install_files
+    setup_log_directory
     
     # 交互式设置
     interactive_setup
