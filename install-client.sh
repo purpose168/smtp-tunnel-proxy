@@ -1,11 +1,20 @@
 #!/bin/bash
 #
-# SMTP 隧道代理 - 客户端安装脚本
+# SMTP 隧道代理 - 客户端安装脚本（非交互式）
 #
 # 一行命令安装:
 #   curl -sSL https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main/install-client.sh | sudo bash
 #
 # 版本: 1.3.0
+#
+# 说明:
+#   此脚本为非交互式安装脚本，会自动执行以下操作：
+#   - 下载客户端文件（如果不存在）
+#   - 创建 Python 虚拟环境（如果不存在）
+#   - 安装 Python 依赖包
+#   - 创建默认配置文件（如果不存在）
+#   - 生成管理脚本（start.sh, stop.sh, status.sh）
+#   - 安装 systemd 服务（如果可用）
 #
 
 # 输出颜色定义
@@ -293,19 +302,9 @@ create_venv() {
     
     # 检查虚拟环境是否已存在
     if [ -d "$VENV_DIR" ]; then
-        print_warn "虚拟环境已存在: $VENV_DIR"
-        
-        # 询问是否重新创建
-        print_ask "是否重新创建虚拟环境？[y/N]: "
-        read -p "    " RECREATE_VENV < /dev/tty
-        
-        if [ "$RECREATE_VENV" = "y" ] || [ "$RECREATE_VENV" = "Y" ]; then
-            print_info "正在删除现有虚拟环境..."
-            rm -rf "$VENV_DIR"
-        else
-            print_info "保留现有虚拟环境"
-            return 0
-        fi
+        print_info "虚拟环境已存在: $VENV_DIR"
+        print_info "保留现有虚拟环境"
+        return 0
     fi
     
     # 创建虚拟环境
@@ -501,73 +500,43 @@ EOF
     print_info "已创建: $INSTALL_DIR/uninstall-client.sh"
 }
 
-# 交互式设置
-interactive_setup() {
+# 非交互式设置
+non_interactive_setup() {
     echo ""
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  交互式设置${NC}"
+    echo -e "${GREEN}  自动安装${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
     
     # 检查客户端文件是否已存在
     if [ -f "$INSTALL_DIR/client.py" ] && [ -f "$INSTALL_DIR/socks5_server.py" ]; then
         print_info "客户端文件已存在，跳过下载"
-        echo ""
-        print_ask "是否重新下载客户端文件？[y/N]: "
-        read -p "    " REDOWNLOAD_CLIENT < /dev/tty
-        
-        if [ "$REDOWNLOAD_CLIENT" = "y" ] || [ "$REDOWNLOAD_CLIENT" = "Y" ]; then
-            # 下载客户端文件
-            if ! install_files; then
-                print_error "下载客户端文件失败"
-                exit 1
-            fi
-        fi
     else
-        # 询问是否下载客户端文件
-        print_ask "是否下载客户端文件？[Y/n]: "
-        read -p "    " DOWNLOAD_CLIENT < /dev/tty
-        
-        if [ -z "$DOWNLOAD_CLIENT" ] || [ "$DOWNLOAD_CLIENT" = "y" ] || [ "$DOWNLOAD_CLIENT" = "Y" ]; then
-            # 下载客户端文件
-            if ! install_files; then
-                print_error "下载客户端文件失败"
-                exit 1
-            fi
-        else
-            print_info "跳过客户端文件下载"
-            echo ""
-            print_info "您可以使用现有的客户端文件"
+        # 下载客户端文件
+        print_info "正在下载客户端文件..."
+        if ! install_files; then
+            print_error "下载客户端文件失败"
+            exit 1
         fi
     fi
     
-    # 询问是否创建虚拟环境
-    echo ""
-    print_ask "是否创建 Python 虚拟环境？[Y/n]: "
-    read -p "    " CREATE_VENV < /dev/tty
+    # 创建虚拟环境
+    print_info "正在创建 Python 虚拟环境..."
+    if ! create_venv; then
+        print_error "虚拟环境创建失败"
+        exit 1
+    fi
     
-    if [ -z "$CREATE_VENV" ] || [ "$CREATE_VENV" = "y" ] || [ "$CREATE_VENV" = "Y" ]; then
-        # 创建虚拟环境
-        if ! create_venv; then
-            print_error "虚拟环境创建失败"
-            exit 1
-        fi
-        
-        # 激活虚拟环境
-        if ! activate_venv; then
-            print_error "虚拟环境激活失败"
-            exit 1
-        fi
-        
-        # 安装 Python 包
-        if ! install_python_packages; then
-            print_error "Python 包安装失败"
-            exit 1
-        fi
-    else
-        print_info "跳过虚拟环境创建"
-        echo ""
-        print_info "您可以使用现有的虚拟环境或系统 Python"
+    # 激活虚拟环境
+    if ! activate_venv; then
+        print_error "虚拟环境激活失败"
+        exit 1
+    fi
+    
+    # 安装 Python 包
+    if ! install_python_packages; then
+        print_error "Python 包安装失败"
+        exit 1
     fi
     
     # 配置文件处理
@@ -576,12 +545,7 @@ interactive_setup() {
     
     if [ -f "$CONFIG_DIR/config.yaml" ]; then
         print_info "配置文件已存在: $CONFIG_DIR/config.yaml"
-        print_ask "是否重新创建配置文件？[y/N]: "
-        read -p "    " RECREATE_CONFIG < /dev/tty
-        
-        if [ "$RECREATE_CONFIG" = "y" ] || [ "$RECREATE_CONFIG" = "Y" ]; then
-            create_config_file
-        fi
+        print_info "保留现有配置文件"
     else
         print_info "创建默认配置文件..."
         create_config_file
@@ -611,33 +575,16 @@ interactive_setup() {
     else
         # 检查 systemd 是否可用
         if command -v systemctl &> /dev/null; then
-            print_ask "是否安装 systemd 服务？[Y/n]: "
-            read -p "    " INSTALL_SYSTEMD < /dev/tty
-            
-            if [ -z "$INSTALL_SYSTEMD" ] || [ "$INSTALL_SYSTEMD" = "y" ] || [ "$INSTALL_SYSTEMD" = "Y" ]; then
-                # 生成 systemd 服务文件
-                if generate_systemd_service; then
-                    # 启用服务
-                    enable_systemd_service
-                    
-                    # 询问是否立即启动服务
-                    echo ""
-                    print_ask "是否立即启动服务？[Y/n]: "
-                    read -p "    " START_NOW < /dev/tty
-                    
-                    if [ -z "$START_NOW" ] || [ "$START_NOW" = "y" ] || [ "$START_NOW" = "Y" ]; then
-                        start_systemd_service
-                    else
-                        print_info "跳过启动服务"
-                        echo ""
-                        print_info "您可以稍后使用以下命令启动服务："
-                        print_info "  sudo systemctl start smtp-tunnel-client"
-                    fi
-                fi
-            else
-                print_info "跳过 systemd 服务安装"
-                print_info "您可以使用管理脚本手动启动客户端："
-                print_info "  $INSTALL_DIR/start.sh"
+            print_info "正在安装 systemd 服务..."
+            # 生成 systemd 服务文件
+            if generate_systemd_service; then
+                # 启用服务
+                enable_systemd_service
+                
+                # 不自动启动服务
+                print_info "systemd 服务已安装，但未启动"
+                print_info "您可以使用以下命令启动服务："
+                print_info "  sudo systemctl start smtp-tunnel-client"
             fi
         else
             print_warn "systemd 不可用，跳过 systemd 服务安装"
@@ -1119,39 +1066,9 @@ check_certificates_simple() {
         echo "   - CA 证书保持为 ca.crt"
         echo "   - 证书文件权限应设置为 600（仅所有者可读写）"
         echo ""
-        
-        # 询问是否现在下载证书
-        print_ask "是否现在使用证书下载脚本下载证书？[y/N]: "
-        read -p "    " DOWNLOAD_CERTS < /dev/tty
-        
-        if [ "$DOWNLOAD_CERTS" = "y" ] || [ "$DOWNLOAD_CERTS" = "Y" ]; then
-            echo ""
-            print_info "启动证书下载脚本..."
-            echo ""
-            
-            # 调用证书下载脚本
-            if [ -f "$SCRIPT_DIR/download-certs.sh" ]; then
-                "$SCRIPT_DIR/download-certs.sh"
-                
-                # 重新检查证书文件
-                if check_certificates_simple; then
-                    echo ""
-                    print_info "证书文件已成功下载"
-                fi
-            else
-                print_error "证书下载脚本不存在: $SCRIPT_DIR/download-certs.sh"
-                print_info "请手动下载证书文件"
-            fi
-        else
-            echo ""
-            print_info "跳过证书下载"
-            echo ""
-            print_warn "您可以在获取证书文件后重新运行客户端"
-            echo ""
-            print_info "获取证书后，使用以下命令启动客户端："
-            echo "  $INSTALL_DIR/start.sh"
-            echo ""
-        fi
+        print_info "获取证书后，使用以下命令启动客户端："
+        echo "  $INSTALL_DIR/start.sh"
+        echo ""
     else
         echo ""
         print_info "所有证书文件已存在"
@@ -1281,8 +1198,8 @@ main() {
     create_directories
     setup_log_directory
     
-    # 交互式设置
-    interactive_setup
+    # 非交互式设置
+    non_interactive_setup
     
     print_summary
 }
