@@ -509,34 +509,6 @@ interactive_setup() {
     echo -e "${GREEN}========================================${NC}"
     echo ""
     
-    # 询问是否创建虚拟环境
-    print_ask "是否创建 Python 虚拟环境？[Y/n]: "
-    read -p "    " CREATE_VENV < /dev/tty
-    
-    if [ -z "$CREATE_VENV" ] || [ "$CREATE_VENV" = "y" ] || [ "$CREATE_VENV" = "Y" ]; then
-        # 创建虚拟环境
-        if ! create_venv; then
-            print_error "虚拟环境创建失败"
-            exit 1
-        fi
-        
-        # 激活虚拟环境
-        if ! activate_venv; then
-            print_error "虚拟环境激活失败"
-            exit 1
-        fi
-        
-        # 安装 Python 包
-        if ! install_python_packages; then
-            print_error "Python 包安装失败"
-            exit 1
-        fi
-    else
-        print_info "跳过虚拟环境创建"
-        echo ""
-        print_info "您可以使用现有的虚拟环境或系统 Python"
-    fi
-    
     # 检查客户端文件是否已存在
     if [ -f "$INSTALL_DIR/client.py" ] && [ -f "$INSTALL_DIR/socks5_server.py" ]; then
         print_info "客户端文件已存在，跳过下载"
@@ -567,6 +539,35 @@ interactive_setup() {
             echo ""
             print_info "您可以使用现有的客户端文件"
         fi
+    fi
+    
+    # 询问是否创建虚拟环境
+    echo ""
+    print_ask "是否创建 Python 虚拟环境？[Y/n]: "
+    read -p "    " CREATE_VENV < /dev/tty
+    
+    if [ -z "$CREATE_VENV" ] || [ "$CREATE_VENV" = "y" ] || [ "$CREATE_VENV" = "Y" ]; then
+        # 创建虚拟环境
+        if ! create_venv; then
+            print_error "虚拟环境创建失败"
+            exit 1
+        fi
+        
+        # 激活虚拟环境
+        if ! activate_venv; then
+            print_error "虚拟环境激活失败"
+            exit 1
+        fi
+        
+        # 安装 Python 包
+        if ! install_python_packages; then
+            print_error "Python 包安装失败"
+            exit 1
+        fi
+    else
+        print_info "跳过虚拟环境创建"
+        echo ""
+        print_info "您可以使用现有的虚拟环境或系统 Python"
     fi
     
     # 配置文件处理
