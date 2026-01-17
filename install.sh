@@ -649,6 +649,20 @@ server:
   users_file: "$CONFIG_DIR/users.yaml"
   log_users: true
 
+  # 流量整形配置（可选，用于增强 DPI 规避效果）
+  traffic:
+    # 是否启用流量整形（默认: false）
+    enabled: false
+
+    # 消息之间的随机延迟范围（毫秒）
+    # 模拟人类行为（阅读、思考、输入）
+    min_delay: 50
+    max_delay: 500
+
+    # 发送虚拟消息的概率（0.0-1.0）
+    # 偶尔发送虚拟数据以增加流量随机性
+    dummy_probability: 0.1
+
 # 日志配置
 logging:
   # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL

@@ -107,6 +107,20 @@ class TunnelSession(BaseTunnel):
             'by_strategy': {}
         }
         
+        # 流量整形器（可选）
+        self.traffic_shaper = None
+        if hasattr(config, 'traffic_enabled') and config.traffic_enabled:
+            try:
+                from traffic import TrafficShaper
+                self.traffic_shaper = TrafficShaper(
+                    min_delay_ms=getattr(config, 'traffic_min_delay', 50),
+                    max_delay_ms=getattr(config, 'traffic_max_delay', 500),
+                    dummy_probability=getattr(config, 'traffic_dummy_probability', 0.1)
+                )
+                logger.debug(f"流量整形已启用: min_delay={self.traffic_shaper.min_delay_ms}ms, max_delay={self.traffic_shaper.max_delay_ms}ms")
+            except ImportError:
+                logger.warning("traffic.py 模块未找到，流量整形功能不可用")
+        
         logger.debug(f"初始化隧道会话: peer={self.peer_str}, client_ip={self.client_ip}")
     
     def _log(self, level: int, msg: str):
@@ -470,6 +484,7 @@ class TunnelSession(BaseTunnel):
         处理 DATA 帧 - 转发数据到目标主机
         
         此方法处理客户端发送的 DATA 帧，将数据转发到目标主机。
+        如果启用了流量整形，会在发送数据前应用延迟和填充。
         
         Args:
             channel_id: 通道ID，标识目标通道
@@ -481,6 +496,15 @@ class TunnelSession(BaseTunnel):
             return
         
         try:
+            # 应用流量整形（如果启用）
+            if self.traffic_shaper:
+                # 添加随机延迟
+                await self.traffic_shaper.delay()
+                
+                # 填充数据到标准大小
+                payload = self.traffic_shaper.pad_data(payload)
+                logger.debug(f"流量整形: 延迟已应用，数据已填充到 {len(payload)} 字节")
+            
             logger.debug(f"转发数据到通道 {channel_id}: {len(payload)} 字节")
             channel.writer.write(payload)
             await channel.writer.drain()
@@ -508,6 +532,7 @@ class TunnelSession(BaseTunnel):
         通道读取器 - 从目标主机读取数据并发送给客户端
         
         此方法在后台运行，持续从目标主机读取数据，并通过隧道发送给客户端。
+        如果启用了流量整形，会在发送数据前应用延迟和填充。
         
         Args:
             channel: Channel 对象，要读取的通道
@@ -523,6 +548,15 @@ class TunnelSession(BaseTunnel):
                 if not data:
                     logger.debug(f"通道 {channel.channel_id} 连接已关闭（读取到空数据）")
                     break
+                
+                # 应用流量整形（如果启用）
+                if self.traffic_shaper:
+                    # 添加随机延迟
+                    await self.traffic_shaper.delay()
+                    
+                    # 填充数据到标准大小
+                    data = self.traffic_shaper.pad_data(data)
+                    logger.debug(f"流量整形: 延迟已应用，数据已填充到 {len(data)} 字节")
                 
                 await self.send_frame(FRAME_DATA, channel.channel_id, data)
                 logger.debug(f"从通道 {channel.channel_id} 转发数据: {len(data)} 字节")

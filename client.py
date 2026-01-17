@@ -205,6 +205,9 @@ def main():
 
     client_conf = config_data.get('client', {})
 
+    # 从配置中提取 traffic 配置
+    traffic_conf = client_conf.get('traffic', {})
+
     config = ClientConfig(
         server_host=args.server or client_conf.get('server_host', 'localhost'),
         server_port=args.server_port or client_conf.get('server_port', 587),
@@ -212,6 +215,10 @@ def main():
         socks_host=client_conf.get('socks_host', '127.0.0.1'),
         username=args.username or client_conf.get('username', ''),
         secret=args.secret or client_conf.get('secret', ''),
+        traffic_enabled=traffic_conf.get('enabled', False),
+        traffic_min_delay=traffic_conf.get('min_delay', 50),
+        traffic_max_delay=traffic_conf.get('max_delay', 500),
+        traffic_dummy_probability=traffic_conf.get('dummy_probability', 0.1),
     )
 
     ca_cert = args.ca_cert or client_conf.get('ca_cert')

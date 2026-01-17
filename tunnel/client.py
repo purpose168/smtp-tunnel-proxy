@@ -71,6 +71,20 @@ class TunnelClient(BaseTunnel):
         self.connect_results: Dict[int, bool] = {}
         
         self.receiver_task: Optional[asyncio.Task] = None
+        
+        # 流量整形器（可选）
+        self.traffic_shaper = None
+        if hasattr(config, 'traffic_enabled') and config.traffic_enabled:
+            try:
+                from traffic import TrafficShaper
+                self.traffic_shaper = TrafficShaper(
+                    min_delay_ms=getattr(config, 'traffic_min_delay', 50),
+                    max_delay_ms=getattr(config, 'traffic_max_delay', 500),
+                    dummy_probability=getattr(config, 'traffic_dummy_probability', 0.1)
+                )
+                logger.debug(f"流量整形已启用: min_delay={self.traffic_shaper.min_delay_ms}ms, max_delay={self.traffic_shaper.max_delay_ms}ms")
+            except ImportError:
+                logger.warning("traffic.py 模块未找到，流量整形功能不可用")
     
     async def connect(self) -> bool:
         """
@@ -268,6 +282,15 @@ class TunnelClient(BaseTunnel):
             channel = self.channels.get(channel_id)
             if channel and channel.connected:
                 try:
+                    # 应用流量整形（如果启用）
+                    if self.traffic_shaper:
+                        # 添加随机延迟
+                        await self.traffic_shaper.delay()
+                        
+                        # 填充数据到标准大小
+                        payload = self.traffic_shaper.pad_data(payload)
+                        logger.debug(f"流量整形: 延迟已应用，数据已填充到 {len(payload)} 字节")
+                    
                     channel.writer.write(payload)
                     await channel.writer.drain()
                     logger.debug(f"通道 {channel_id} 转发数据: {len(payload)} 字节")
@@ -341,11 +364,21 @@ class TunnelClient(BaseTunnel):
         在指定通道上发送数据
         
         将数据封装为 DATA 帧发送到服务器，服务器会将数据转发到目标主机。
+        如果启用了流量整形，会在发送数据前应用延迟和填充。
         
         Args:
             channel_id: 通道标识符
             data: 要发送的数据
         """
+        # 应用流量整形（如果启用）
+        if self.traffic_shaper:
+            # 添加随机延迟
+            await self.traffic_shaper.delay()
+            
+            # 填充数据到标准大小
+            data = self.traffic_shaper.pad_data(data)
+            logger.debug(f"流量整形: 延迟已应用，数据已填充到 {len(data)} 字节")
+        
         logger.debug(f"发送数据到通道 {channel_id}: {len(data)} 字节")
         await self.send_frame(FRAME_DATA, channel_id, data)
     

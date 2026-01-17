@@ -113,6 +113,9 @@ def main():
     # 从配置中提取服务器配置
     server_conf = config_data.get('server', {})
 
+    # 从配置中提取 traffic 配置
+    traffic_conf = server_conf.get('traffic', {})
+
     # 创建 ServerConfig 对象 - 使用配置文件中的值或默认值
     config = ServerConfig(
         host=server_conf.get('host', '0.0.0.0'),
@@ -122,6 +125,10 @@ def main():
         key_file=server_conf.get('key_file', 'server.key'),
         users_file=server_conf.get('users_file', 'users.yaml'),
         log_users=server_conf.get('log_users', True),
+        traffic_enabled=traffic_conf.get('enabled', False),
+        traffic_min_delay=traffic_conf.get('min_delay', 50),
+        traffic_max_delay=traffic_conf.get('max_delay', 500),
+        traffic_dummy_probability=traffic_conf.get('dummy_probability', 0.1),
     )
 
     # 加载用户文件 - 命令行参数优先于配置文件

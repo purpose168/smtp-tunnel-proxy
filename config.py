@@ -50,6 +50,10 @@ class ServerConfig:
         key_file: TLS 私钥文件路径（默认: "server.key"）
         users_file: 用户配置文件路径（默认: "users.yaml"）
         log_users: 是否记录用户日志（默认: True）
+        traffic_enabled: 是否启用流量整形（默认: False）
+        traffic_min_delay: 流量整形最小延迟（毫秒，默认: 50）
+        traffic_max_delay: 流量整形最大延迟（毫秒，默认: 500）
+        traffic_dummy_probability: 发送虚拟消息的概率（默认: 0.1）
     """
     host: str = "0.0.0.0"
     port: int = 587
@@ -58,6 +62,10 @@ class ServerConfig:
     key_file: str = "server.key"
     users_file: str = "users.yaml"
     log_users: bool = True
+    traffic_enabled: bool = False
+    traffic_min_delay: int = 50
+    traffic_max_delay: int = 500
+    traffic_dummy_probability: float = 0.1
 
 
 @dataclass
@@ -94,6 +102,10 @@ class ClientConfig:
         username: 用户名（可选）
         secret: 用户密钥（可选）
         ca_cert: CA 证书路径（可选）
+        traffic_enabled: 是否启用流量整形（默认: False）
+        traffic_min_delay: 流量整形最小延迟（毫秒，默认: 50）
+        traffic_max_delay: 流量整形最大延迟（毫秒，默认: 500）
+        traffic_dummy_probability: 发送虚拟消息的概率（默认: 0.1）
     """
     server_host: str
     server_port: int = 587
@@ -102,6 +114,10 @@ class ClientConfig:
     username: str = None
     secret: str = None
     ca_cert: str = None
+    traffic_enabled: bool = False
+    traffic_min_delay: int = 50
+    traffic_max_delay: int = 500
+    traffic_dummy_probability: float = 0.1
 
 
 # ============================================================================
