@@ -589,6 +589,61 @@ interactive_setup() {
     
     # 检查证书文件
     check_certificates
+    
+    # 生成管理脚本
+    echo ""
+    print_step "生成管理脚本"
+    generate_start_script
+    generate_stop_script
+    generate_status_script
+    
+    # systemd 服务配置
+    echo ""
+    print_step "systemd 服务配置"
+    
+    # 检查是否为 root 用户
+    if [ "$EUID" -ne 0 ]; then
+        print_warn "需要 root 权限才能安装 systemd 服务"
+        print_info "跳过 systemd 服务安装"
+        print_info "您可以使用管理脚本手动启动客户端："
+        print_info "  $INSTALL_DIR/start.sh"
+    else
+        # 检查 systemd 是否可用
+        if command -v systemctl &> /dev/null; then
+            print_ask "是否安装 systemd 服务？[Y/n]: "
+            read -p "    " INSTALL_SYSTEMD < /dev/tty
+            
+            if [ -z "$INSTALL_SYSTEMD" ] || [ "$INSTALL_SYSTEMD" = "y" ] || [ "$INSTALL_SYSTEMD" = "Y" ]; then
+                # 生成 systemd 服务文件
+                if generate_systemd_service; then
+                    # 启用服务
+                    enable_systemd_service
+                    
+                    # 询问是否立即启动服务
+                    echo ""
+                    print_ask "是否立即启动服务？[Y/n]: "
+                    read -p "    " START_NOW < /dev/tty
+                    
+                    if [ -z "$START_NOW" ] || [ "$START_NOW" = "y" ] || [ "$START_NOW" = "Y" ]; then
+                        start_systemd_service
+                    else
+                        print_info "跳过启动服务"
+                        echo ""
+                        print_info "您可以稍后使用以下命令启动服务："
+                        print_info "  sudo systemctl start smtp-tunnel-client"
+                    fi
+                fi
+            else
+                print_info "跳过 systemd 服务安装"
+                print_info "您可以使用管理脚本手动启动客户端："
+                print_info "  $INSTALL_DIR/start.sh"
+            fi
+        else
+            print_warn "systemd 不可用，跳过 systemd 服务安装"
+            print_info "您可以使用管理脚本手动启动客户端："
+            print_info "  $INSTALL_DIR/start.sh"
+        fi
+    fi
 }
 
 # 创建配置文件
@@ -1025,73 +1080,173 @@ check_certificates() {
         echo ""
         print_warn "缺少证书文件！"
         echo ""
-        echo "请从服务器获取以下证书文件："
-        echo "  1. CA 证书: ca.crt"
-        echo "  2. 客户端证书: client.crt"
-        echo "  3. 客户端私钥: client.key"
+        echo -e "${YELLOW}证书文件说明:${NC}"
+        echo "   客户端需要以下证书文件才能与服务器建立安全连接："
+        echo "   - CA 证书 (ca.crt)"
+        echo "   - 客户端证书 (client.crt)"
+        echo "   - 客户端私钥 (client.key)"
         echo ""
-        echo "获取方式："
-        echo "  - 在服务器上运行: sudo smtp-tunnel-adduser <username>"
-        echo "  - 下载生成的证书文件到 $CONFIG_DIR"
+        echo -e "${YELLOW}获取证书的步骤:${NC}"
+        echo "   1. 在服务器上运行以下命令创建用户："
+        echo "      sudo smtp-tunnel-adduser <username>"
         echo ""
-        echo "示例："
-        echo "  scp root@server:/opt/smtp-tunnel/config/client-<username>.* $CONFIG_DIR/"
+        echo "   2. 服务器会生成以下证书文件："
+        echo "      - /opt/smtp-tunnel/config/ca.crt"
+        echo "      - /opt/smtp-tunnel/config/client-<username>.crt"
+        echo "      - /opt/smtp-tunnel/config/client-<username>.key"
         echo ""
+        echo "   3. 使用 scp 命令下载证书文件："
+        echo "      scp root@server:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
+        echo "      scp root@server:/opt/smtp-tunnel/config/client-<username>.crt $CONFIG_DIR/client.crt"
+        echo "      scp root@server:/opt/smtp-tunnel/config/client-<username>.key $CONFIG_DIR/client.key"
+        echo ""
+        echo "   4. 或者一次性下载所有证书："
+        echo "      scp root@server:/opt/smtp-tunnel/config/client-<username>.* $CONFIG_DIR/"
+        echo "      scp root@server:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
+        echo ""
+        echo -e "${YELLOW}示例:${NC}"
+        echo "   假设用户名为 'testuser'，服务器地址为 '192.168.1.100'："
+        echo "   scp root@192.168.1.100:/opt/smtp-tunnel/config/client-testuser.* $CONFIG_DIR/"
+        echo "   scp root@192.168.1.100:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
+        echo ""
+        echo -e "${YELLOW}注意事项:${NC}"
+        echo "   - 确保将客户端证书重命名为 client.crt"
+        echo "   - 确保将客户端私钥重命名为 client.key"
+        echo "   - CA 证书保持为 ca.crt"
+        echo "   - 证书文件权限应设置为 600（仅所有者可读写）"
+        echo ""
+        
+        # 询问是否现在下载证书
+        print_ask "是否现在从服务器下载证书？[y/N]: "
+        read -p "    " DOWNLOAD_CERTS < /dev/tty
+        
+        if [ "$DOWNLOAD_CERTS" = "y" ] || [ "$DOWNLOAD_CERTS" = "Y" ]; then
+            echo ""
+            print_info "请输入服务器信息："
+            echo ""
+            
+            # 询问服务器地址
+            print_ask "服务器地址: "
+            read -p "    " SERVER_ADDR < /dev/tty
+            
+            if [ -z "$SERVER_ADDR" ]; then
+                print_warn "服务器地址不能为空"
+                return 1
+            fi
+            
+            # 询问用户名
+            print_ask "客户端用户名: "
+            read -p "    " CLIENT_USERNAME < /dev/tty
+            
+            if [ -z "$CLIENT_USERNAME" ]; then
+                print_warn "用户名不能为空"
+                return 1
+            fi
+            
+            echo ""
+            print_info "正在从服务器下载证书文件..."
+            echo ""
+            
+            # 下载 CA 证书
+            if ! scp "root@${SERVER_ADDR}:/opt/smtp-tunnel/config/ca.crt" "$CONFIG_DIR/ca.crt"; then
+                print_error "下载 CA 证书失败"
+                return 1
+            fi
+            print_info "✓ 已下载: ca.crt"
+            
+            # 下载客户端证书
+            if ! scp "root@${SERVER_ADDR}:/opt/smtp-tunnel/config/client-${CLIENT_USERNAME}.crt" "$CONFIG_DIR/client.crt"; then
+                print_error "下载客户端证书失败"
+                return 1
+            fi
+            print_info "✓ 已下载: client.crt"
+            
+            # 下载客户端私钥
+            if ! scp "root@${SERVER_ADDR}:/opt/smtp-tunnel/config/client-${CLIENT_USERNAME}.key" "$CONFIG_DIR/client.key"; then
+                print_error "下载客户端私钥失败"
+                return 1
+            fi
+            print_info "✓ 已下载: client.key"
+            
+            # 设置证书文件权限
+            chmod 600 "$CONFIG_DIR/ca.crt"
+            chmod 600 "$CONFIG_DIR/client.crt"
+            chmod 600 "$CONFIG_DIR/client.key"
+            
+            echo ""
+            print_info "证书文件下载完成！"
+            print_info "证书文件权限已设置为 600"
+            echo ""
+            
+            # 验证证书文件
+            verify_certificates
+        else
+            echo ""
+            print_info "跳过证书下载"
+            echo ""
+            print_warn "您可以在获取证书文件后重新运行客户端"
+            echo ""
+            print_info "获取证书后，使用以下命令启动客户端："
+            echo "  $INSTALL_DIR/start.sh"
+            echo ""
+        fi
+    else
+        echo ""
+        print_info "所有证书文件已存在"
+        echo ""
+        
+        # 验证证书文件
+        verify_certificates
+    fi
+}
+
+# 验证证书文件
+verify_certificates() {
+    print_step "验证证书文件..."
+    
+    local cert_valid=true
+    
+    # 检查 CA 证书
+    if [ -f "$CONFIG_DIR/ca.crt" ]; then
+        if openssl x509 -in "$CONFIG_DIR/ca.crt" -noout -checkend 0 2>/dev/null; then
+            print_info "✓ CA 证书有效: $CONFIG_DIR/ca.crt"
+        else
+            print_warn "✗ CA 证书无效或已过期: $CONFIG_DIR/ca.crt"
+            cert_valid=false
+        fi
     fi
     
-    # 生成管理脚本
-    echo ""
-    print_step "生成管理脚本"
-    generate_start_script
-    generate_stop_script
-    generate_status_script
-    
-    # systemd 服务配置
-    echo ""
-    print_step "systemd 服务配置"
-    
-    # 检查是否为 root 用户
-    if [ "$EUID" -ne 0 ]; then
-        print_warn "需要 root 权限才能安装 systemd 服务"
-        print_info "跳过 systemd 服务安装"
-        print_info "您可以使用管理脚本手动启动客户端："
-        print_info "  $INSTALL_DIR/start.sh"
-    else
-        # 检查 systemd 是否可用
-        if command -v systemctl &> /dev/null; then
-            print_ask "是否安装 systemd 服务？[Y/n]: "
-            read -p "    " INSTALL_SYSTEMD < /dev/tty
-            
-            if [ -z "$INSTALL_SYSTEMD" ] || [ "$INSTALL_SYSTEMD" = "y" ] || [ "$INSTALL_SYSTEMD" = "Y" ]; then
-                # 生成 systemd 服务文件
-                if generate_systemd_service; then
-                    # 启用服务
-                    enable_systemd_service
-                    
-                    # 询问是否立即启动服务
-                    echo ""
-                    print_ask "是否立即启动服务？[Y/n]: "
-                    read -p "    " START_NOW < /dev/tty
-                    
-                    if [ -z "$START_NOW" ] || [ "$START_NOW" = "y" ] || [ "$START_NOW" = "Y" ]; then
-                        start_systemd_service
-                    else
-                        print_info "跳过启动服务"
-                        echo ""
-                        print_info "您可以稍后使用以下命令启动服务："
-                        print_info "  sudo systemctl start smtp-tunnel-client"
-                    fi
-                fi
-            else
-                print_info "跳过 systemd 服务安装"
-                print_info "您可以使用管理脚本手动启动客户端："
-                print_info "  $INSTALL_DIR/start.sh"
-            fi
+    # 检查客户端证书
+    if [ -f "$CONFIG_DIR/client.crt" ]; then
+        if openssl x509 -in "$CONFIG_DIR/client.crt" -noout -checkend 0 2>/dev/null; then
+            print_info "✓ 客户端证书有效: $CONFIG_DIR/client.crt"
         else
-            print_warn "systemd 不可用，跳过 systemd 服务安装"
-            print_info "您可以使用管理脚本手动启动客户端："
-            print_info "  $INSTALL_DIR/start.sh"
+            print_warn "✗ 客户端证书无效或已过期: $CONFIG_DIR/client.crt"
+            cert_valid=false
         fi
+    fi
+    
+    # 检查私钥和证书是否匹配
+    if [ -f "$CONFIG_DIR/client.crt" ] && [ -f "$CONFIG_DIR/client.key" ]; then
+        local cert_modulus=$(openssl x509 -noout -modulus -in "$CONFIG_DIR/client.crt" 2>/dev/null | openssl md5)
+        local key_modulus=$(openssl rsa -noout -modulus -in "$CONFIG_DIR/client.key" 2>/dev/null | openssl md5)
+        
+        if [ "$cert_modulus" = "$key_modulus" ]; then
+            print_info "✓ 客户端证书和私钥匹配"
+        else
+            print_warn "✗ 客户端证书和私钥不匹配"
+            cert_valid=false
+        fi
+    fi
+    
+    if [ "$cert_valid" = true ]; then
+        echo ""
+        print_info "所有证书文件验证通过"
+        echo ""
+    else
+        echo ""
+        print_warn "证书文件验证失败，请检查证书文件"
+        echo ""
     fi
 }
 

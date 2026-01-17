@@ -1,0 +1,65 @@
+# Python 缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Git 相关
+.git/
+.gitignore
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志文件
+*.log
+logs/
+log/
+
+# 临时文件
+*.tmp
+*.temp
+temp/
+tmp/
+data/
+
+# 客户端包
+*.zip
+pps/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 备份相关
+backups/
+backup/
+*.backup
+
+# Ruby 相关
+.ruby-lsp/
+.ruby-version
+
+# 构建产物
+dist/
+build/
+*.egg-info/
+
+# 测试覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+
+# 其他
+*.pid
+*.lock
