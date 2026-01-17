@@ -20,13 +20,13 @@ NC='\033[0m'          # 无颜色
 GITHUB_RAW="https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main"
 
 # 获取脚本所在目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/smtp-tunnel-proxy"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 安装目录（使用脚本执行时的当前路径）
-INSTALL_DIR="$SCRIPT_DIR"           # 程序安装目录
-CONFIG_DIR="$SCRIPT_DIR"            # 配置文件目录
-VENV_DIR="$SCRIPT_DIR/venv"        # Python 虚拟环境目录
-LOG_DIR="$SCRIPT_DIR/logs"           # 日志目录
+# 安装目录（使用脚本执行时当前路径下的 smtp-tunnel 文件夹）
+INSTALL_DIR="$SCRIPT_DIR/smtp-tunnel"           # 程序安装目录
+CONFIG_DIR="$SCRIPT_DIR/smtp-tunnel"            # 配置文件目录
+VENV_DIR="$SCRIPT_DIR/smtp-tunnel/venv"        # Python 虚拟环境目录
+LOG_DIR="$SCRIPT_DIR/smtp-tunnel/logs"           # 日志目录
 
 # BIN_DIR 保持系统级目录不变
 BIN_DIR="/usr/local/bin"            # 可执行文件目录
