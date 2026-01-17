@@ -133,6 +133,7 @@ def create_client_package(
         os.makedirs(pkg_dir)                       # 创建目录
 
         # 复制客户端文件
+        missing_files = []  # 记录缺失的文件
         for filename in client_files:
             if files[filename] and os.path.exists(files[filename]):
                 # 处理子目录结构
@@ -147,7 +148,15 @@ def create_client_package(
                     # 复制文件到包目录
                     shutil.copy(files[filename], pkg_dir)
             else:
-                print(f"警告: {filename} 未找到，跳过")
+                missing_files.append(filename)
+
+        # 显示缺失文件警告（如果有）
+        if missing_files:
+            print(f"提示: 以下客户端文件未找到（服务器端通常不包含这些文件）:")
+            for filename in missing_files:
+                print(f"  - {filename}")
+            print("  这不影响服务器端功能。如需创建客户端包，请先下载客户端文件。")
+            print()
 
         # 如果存在 CA 证书则复制
         if has_ca_cert:

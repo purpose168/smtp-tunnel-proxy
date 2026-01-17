@@ -34,6 +34,9 @@ BIN_DIR="/usr/local/bin"            # 可执行文件目录
 # 日志文件
 LOG_FILE="$LOG_DIR/install.log"
 
+# logrotate 配置文件
+LOGROTATE_CONF="$LOG_DIR/logrotate.conf"
+
 # 需要下载的 Python 文件
 # 主入口文件
 MAIN_FILES="server.py common.py generate_certs.py connection.py"
@@ -663,7 +666,10 @@ generate_certificates() {
         print_info "证书生成成功"
         
         # 创建符号链接以便 adduser 脚本可以找到 ca.crt
-        ln -sf "$CONFIG_DIR/ca.crt" "$INSTALL_DIR/ca.crt"
+        # 只有当配置目录和安装目录不同时才创建符号链接
+        if [ "$CONFIG_DIR" != "$INSTALL_DIR" ]; then
+            ln -sf "$CONFIG_DIR/ca.crt" "$INSTALL_DIR/ca.crt"
+        fi
         return 0
     else
         print_error "证书生成失败。您可以手动尝试:"
@@ -874,7 +880,10 @@ EOF
         print_info "证书生成成功"
         
         # 创建符号链接以便 adduser 脚本可以找到 ca.crt
-        ln -sf "$CONFIG_DIR/ca.crt" "$INSTALL_DIR/ca.crt"
+        # 只有当配置目录和安装目录不同时才创建符号链接
+        if [ "$CONFIG_DIR" != "$INSTALL_DIR" ]; then
+            ln -sf "$CONFIG_DIR/ca.crt" "$INSTALL_DIR/ca.crt"
+        fi
     else
         print_error "证书生成失败。您可以手动尝试:"
         echo "    cd $INSTALL_DIR"
