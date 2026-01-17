@@ -36,18 +36,28 @@ from tunnel.crypto import (
 )
 
 # ============================================================================
-# 从 traffic.py 导入
+# 从 traffic.py 导入（可选）
 # ============================================================================
-from traffic import (
-    TrafficShaper,
-)
+try:
+    from traffic import (
+        TrafficShaper,
+    )
+    _has_traffic = True
+except ImportError:
+    _has_traffic = False
+    TrafficShaper = None
 
 # ============================================================================
-# 从 smtp_message.py 导入
+# 从 smtp_message.py 导入（可选）
 # ============================================================================
-from smtp_message import (
-    SMTPMessageGenerator,
-)
+try:
+    from smtp_message import (
+        SMTPMessageGenerator,
+    )
+    _has_smtp_message = True
+except ImportError:
+    _has_smtp_message = False
+    SMTPMessageGenerator = None
 
 # ============================================================================
 # 从 config.py 导入
