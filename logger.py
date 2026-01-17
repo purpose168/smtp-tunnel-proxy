@@ -56,7 +56,7 @@ class LogConfig:
         context_fields: 上下文字段列表
     """
     level: str = "INFO"
-    log_dir: str = "/var/log/smtp-tunnel"
+    log_dir: str = "/opt/smtp-tunnel/logs"
     log_file: str = "smtp-tunnel.log"
     max_bytes: int = 10 * 1024 * 1024  # 10MB
     backup_count: int = 10
@@ -213,7 +213,7 @@ class LoggerManager:
 
             return LogConfig(
                 level=os.getenv('LOG_LEVEL', log_config.get('level', 'INFO')),
-                log_dir=os.getenv('LOG_DIR', log_config.get('log_dir', '/var/log/smtp-tunnel')),
+                log_dir=os.getenv('LOG_DIR', log_config.get('log_dir', '/opt/smtp-tunnel/logs')),
                 log_file=os.getenv('LOG_FILE', log_config.get('log_file', 'smtp-tunnel.log')),
                 max_bytes=int(os.getenv('LOG_MAX_BYTES', log_config.get('max_bytes', 10 * 1024 * 1024))),
                 backup_count=int(os.getenv('LOG_BACKUP_COUNT', log_config.get('backup_count', 10))),
@@ -241,7 +241,7 @@ class LoggerManager:
         """
         return LogConfig(
             level=os.getenv('LOG_LEVEL', 'INFO'),
-            log_dir=os.getenv('LOG_DIR', '/var/log/smtp-tunnel'),
+            log_dir=os.getenv('LOG_DIR', '/opt/smtp-tunnel/logs'),
             log_file=os.getenv('LOG_FILE', 'smtp-tunnel.log'),
             max_bytes=int(os.getenv('LOG_MAX_BYTES', 10 * 1024 * 1024)),
             backup_count=int(os.getenv('LOG_BACKUP_COUNT', 10)),

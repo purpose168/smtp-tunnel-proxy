@@ -3,7 +3,6 @@ Description=SMTP 隧道代理服务器
 Documentation=https://github.com/purpose168/smtp-tunnel-proxy
 After=network.target
 RequiresMountsFor=/opt/smtp-tunnel
-RequiresMountsFor=/etc/smtp-tunnel
 
 [Service]
 Type=simple
@@ -11,7 +10,7 @@ User=root
 WorkingDirectory=/opt/smtp-tunnel
 
 # 优先使用虚拟环境中的 Python，备用使用系统 Python
-ExecStart=/opt/smtp-tunnel/venv/bin/python /opt/smtp-tunnel/server.py -c /etc/smtp-tunnel/config.yaml
+ExecStart=/opt/smtp-tunnel/venv/bin/python /opt/smtp-tunnel/server.py -c /opt/smtp-tunnel/config/config.yaml
 
 Restart=on-failure
 RestartSec=5
@@ -42,14 +41,12 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
 # 允许写入的路径
-ReadWritePaths=/etc/smtp-tunnel
 ReadWritePaths=/opt/smtp-tunnel
-ReadWritePaths=/var/log/smtp-tunnel
 
 # 日志轮转配置
 # 日志文件将在达到大小时自动轮转
 # 使用logrotate进行日志管理
-# 配置文件位于: /etc/logrotate.d/smtp-tunnel
+# 配置文件位于: /opt/smtp-tunnel/logs/logrotate.conf
 
 # 私有临时目录
 PrivateTmp=true

@@ -484,8 +484,8 @@ def main():
     parser.add_argument('--secret', '-s', default=None, help='密钥（未提供则自动生成）')
     parser.add_argument('--whitelist', '-w', action='append', default=[], help='IP 白名单（可指定多个）')
     parser.add_argument('--no-logging', action='store_true', help='为此用户禁用日志记录')
-    parser.add_argument('--users-file', '-u', default='/etc/smtp-tunnel/users.yaml', help='用户文件（默认: /etc/smtp-tunnel/users.yaml）')
-    parser.add_argument('--config', '-c', default='/etc/smtp-tunnel/config.yaml', help='服务器配置文件（默认: /etc/smtp-tunnel/config.yaml）')
+    parser.add_argument('--users-file', '-u', default='/opt/smtp-tunnel/config/users.yaml', help='用户文件（默认: /opt/smtp-tunnel/config/users.yaml）')
+    parser.add_argument('--config', '-c', default='/opt/smtp-tunnel/config/config.yaml', help='服务器配置文件（默认: /opt/smtp-tunnel/config/config.yaml）')
     parser.add_argument('--output-dir', '-o', default='.', help='ZIP 文件输出目录（默认: 当前目录）')
     parser.add_argument('--no-package', action='store_true', help='不生成客户端 ZIP 包')
 
