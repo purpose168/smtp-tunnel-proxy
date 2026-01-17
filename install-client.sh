@@ -657,6 +657,340 @@ EOF
     print_warn "请编辑配置文件，设置服务器地址和证书路径"
 }
 
+# 生成启动脚本
+generate_start_script() {
+    print_step "生成启动脚本..."
+    
+    local start_script="$INSTALL_DIR/start.sh"
+    
+    cat > "$start_script" << 'EOF'
+#!/bin/bash
+# SMTP 隧道代理客户端启动脚本
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 配置文件路径
+CONFIG_FILE="${SCRIPT_DIR}/config/config.yaml"
+
+# 虚拟环境路径
+VENV_DIR="${SCRIPT_DIR}/venv"
+
+# 日志文件
+LOG_FILE="${SCRIPT_DIR}/logs/client.log"
+
+# 检查配置文件是否存在
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "错误: 配置文件不存在: $CONFIG_FILE"
+    echo "请先运行安装脚本创建配置文件"
+    exit 1
+fi
+
+# 检查虚拟环境是否存在
+if [ -d "$VENV_DIR" ]; then
+    # 使用虚拟环境中的 Python
+    PYTHON_CMD="${VENV_DIR}/bin/python"
+    
+    if [ ! -f "$PYTHON_CMD" ]; then
+        echo "错误: 虚拟环境中的 Python 不存在: $PYTHON_CMD"
+        exit 1
+    fi
+else
+    # 使用系统 Python
+    PYTHON_CMD="python3"
+    
+    if ! command -v python3 &> /dev/null; then
+        echo "错误: 找不到 python3 命令"
+        echo "请先安装 Python 3"
+        exit 1
+    fi
+fi
+
+# 检查客户端文件是否存在
+CLIENT_FILE="${SCRIPT_DIR}/client.py"
+if [ ! -f "$CLIENT_FILE" ]; then
+    echo "错误: 客户端文件不存在: $CLIENT_FILE"
+    exit 1
+fi
+
+# 创建日志目录
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# 启动客户端
+echo "启动 SMTP 隧道代理客户端..."
+echo "配置文件: $CONFIG_FILE"
+echo "Python: $PYTHON_CMD"
+echo "日志文件: $LOG_FILE"
+echo ""
+
+# 启动客户端（后台运行）
+nohup "$PYTHON_CMD" "$CLIENT_FILE" -c "$CONFIG_FILE" >> "$LOG_FILE" 2>&1 &
+CLIENT_PID=$!
+
+# 保存 PID
+echo "$CLIENT_PID" > "${SCRIPT_DIR}/client.pid"
+
+echo "客户端已启动，PID: $CLIENT_PID"
+echo ""
+echo "查看日志: tail -f $LOG_FILE"
+echo "停止客户端: ${SCRIPT_DIR}/stop.sh"
+echo "查看状态: ${SCRIPT_DIR}/status.sh"
+EOF
+    
+    chmod +x "$start_script"
+    print_info "已生成启动脚本: $start_script"
+}
+
+# 生成停止脚本
+generate_stop_script() {
+    print_step "生成停止脚本..."
+    
+    local stop_script="$INSTALL_DIR/stop.sh"
+    
+    cat > "$stop_script" << 'EOF'
+#!/bin/bash
+# SMTP 隧道代理客户端停止脚本
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# PID 文件
+PID_FILE="${SCRIPT_DIR}/client.pid"
+
+# 检查 PID 文件是否存在
+if [ ! -f "$PID_FILE" ]; then
+    echo "错误: PID 文件不存在: $PID_FILE"
+    echo "客户端可能未运行"
+    exit 1
+fi
+
+# 读取 PID
+PID=$(cat "$PID_FILE")
+
+# 检查进程是否存在
+if ! kill -0 "$PID" 2>/dev/null; then
+    echo "警告: 进程 $PID 不存在"
+    rm -f "$PID_FILE"
+    exit 1
+fi
+
+# 停止进程
+echo "正在停止客户端 (PID: $PID)..."
+kill "$PID"
+
+# 等待进程结束
+for i in {1..10}; do
+    if ! kill -0 "$PID" 2>/dev/null; then
+        echo "客户端已停止"
+        rm -f "$PID_FILE"
+        exit 0
+    fi
+    sleep 1
+done
+
+# 如果进程仍在运行，强制停止
+echo "警告: 进程未正常停止，强制终止..."
+kill -9 "$PID"
+rm -f "$PID_FILE"
+echo "客户端已强制停止"
+EOF
+    
+    chmod +x "$stop_script"
+    print_info "已生成停止脚本: $stop_script"
+}
+
+# 生成状态脚本
+generate_status_script() {
+    print_step "生成状态脚本..."
+    
+    local status_script="$INSTALL_DIR/status.sh"
+    
+    cat > "$status_script" << 'EOF'
+#!/bin/bash
+# SMTP 隧道代理客户端状态脚本
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# PID 文件
+PID_FILE="${SCRIPT_DIR}/client.pid"
+
+# 日志文件
+LOG_FILE="${SCRIPT_DIR}/logs/client.log"
+
+# 检查 PID 文件是否存在
+if [ ! -f "$PID_FILE" ]; then
+    echo "状态: 未运行"
+    echo "PID 文件不存在"
+    exit 0
+fi
+
+# 读取 PID
+PID=$(cat "$PID_FILE")
+
+# 检查进程是否存在
+if ! kill -0 "$PID" 2>/dev/null; then
+    echo "状态: 未运行"
+    echo "PID: $PID (进程已终止)"
+    rm -f "$PID_FILE"
+    exit 0
+fi
+
+# 进程正在运行
+echo "状态: 运行中"
+echo "PID: $PID"
+echo ""
+echo "进程信息:"
+ps -p "$PID" -o pid,ppid,cmd,etime,pcpu,pmem
+echo ""
+echo "最近的日志 (最后 20 行):"
+if [ -f "$LOG_FILE" ]; then
+    tail -n 20 "$LOG_FILE"
+else
+    echo "日志文件不存在: $LOG_FILE"
+fi
+EOF
+    
+    chmod +x "$status_script"
+    print_info "已生成状态脚本: $status_script"
+}
+
+# 生成 systemd 服务文件
+generate_systemd_service() {
+    print_step "生成 systemd 服务文件..."
+    
+    # 检查是否为 root 用户
+    if [ "$EUID" -ne 0 ]; then
+        print_warn "需要 root 权限才能安装 systemd 服务"
+        print_info "请使用 sudo 运行安装脚本"
+        return 1
+    fi
+    
+    # 检查 systemd 是否可用
+    if ! command -v systemctl &> /dev/null; then
+        print_warn "systemd 不可用，跳过 systemd 服务安装"
+        return 1
+    fi
+    
+    local service_name="smtp-tunnel-client"
+    local service_file="/etc/systemd/system/${service_name}.service"
+    
+    cat > "$service_file" << EOF
+[Unit]
+Description=SMTP 隧道代理客户端
+Documentation=https://github.com/purpose168/smtp-tunnel-proxy
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=$INSTALL_DIR
+RequiresMountsFor=$CONFIG_DIR
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+
+# 优先使用虚拟环境中的 Python，备用使用系统 Python
+ExecStart=$VENV_DIR/bin/python $INSTALL_DIR/client.py -c $CONFIG_DIR/config.yaml
+
+# 重启策略
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# 标准输出和错误
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smtp-tunnel-client
+
+# Python 环境变量
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=VIRTUAL_ENV=$VENV_DIR
+Environment=PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin
+
+# 日志环境变量
+Environment=LOG_LEVEL=INFO
+Environment=LOG_DIR=$LOG_DIR
+Environment=LOG_ENABLE_CONSOLE=false
+Environment=LOG_ENABLE_FILE=true
+Environment=LOG_ENABLE_JOURNAL=true
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+MemoryMax=512M
+
+# 安全加固配置
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# 允许写入的路径
+ReadWritePaths=$CONFIG_DIR
+ReadWritePaths=$INSTALL_DIR
+ReadWritePaths=$LOG_DIR
+
+# 私有临时目录
+PrivateTmp=true
+
+# 网络访问能力
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    chmod 644 "$service_file"
+    
+    # 重新加载 systemd 配置
+    systemctl daemon-reload
+    
+    print_info "已生成 systemd 服务文件: $service_file"
+    return 0
+}
+
+# 启用 systemd 服务
+enable_systemd_service() {
+    print_step "启用 systemd 服务..."
+    
+    local service_name="smtp-tunnel-client"
+    
+    if ! systemctl is-enabled "$service_name" &> /dev/null; then
+        systemctl enable "$service_name"
+        print_info "服务已设置为开机自启: $service_name"
+    else
+        print_info "服务已启用: $service_name"
+    fi
+}
+
+# 启动 systemd 服务
+start_systemd_service() {
+    print_step "启动 systemd 服务..."
+    
+    local service_name="smtp-tunnel-client"
+    
+    if systemctl is-active --quiet "$service_name"; then
+        print_info "服务已在运行: $service_name"
+    else
+        systemctl start "$service_name"
+        print_info "服务已启动: $service_name"
+    fi
+    
+    # 显示服务状态
+    echo ""
+    systemctl status "$service_name" --no-pager -l
+}
+
 # 检查证书文件
 check_certificates() {
     print_step "检查证书文件..."
@@ -704,6 +1038,61 @@ check_certificates() {
         echo "  scp root@server:/opt/smtp-tunnel/config/client-<username>.* $CONFIG_DIR/"
         echo ""
     fi
+    
+    # 生成管理脚本
+    echo ""
+    print_step "生成管理脚本"
+    generate_start_script
+    generate_stop_script
+    generate_status_script
+    
+    # systemd 服务配置
+    echo ""
+    print_step "systemd 服务配置"
+    
+    # 检查是否为 root 用户
+    if [ "$EUID" -ne 0 ]; then
+        print_warn "需要 root 权限才能安装 systemd 服务"
+        print_info "跳过 systemd 服务安装"
+        print_info "您可以使用管理脚本手动启动客户端："
+        print_info "  $INSTALL_DIR/start.sh"
+    else
+        # 检查 systemd 是否可用
+        if command -v systemctl &> /dev/null; then
+            print_ask "是否安装 systemd 服务？[Y/n]: "
+            read -p "    " INSTALL_SYSTEMD < /dev/tty
+            
+            if [ -z "$INSTALL_SYSTEMD" ] || [ "$INSTALL_SYSTEMD" = "y" ] || [ "$INSTALL_SYSTEMD" = "Y" ]; then
+                # 生成 systemd 服务文件
+                if generate_systemd_service; then
+                    # 启用服务
+                    enable_systemd_service
+                    
+                    # 询问是否立即启动服务
+                    echo ""
+                    print_ask "是否立即启动服务？[Y/n]: "
+                    read -p "    " START_NOW < /dev/tty
+                    
+                    if [ -z "$START_NOW" ] || [ "$START_NOW" = "y" ] || [ "$START_NOW" = "Y" ]; then
+                        start_systemd_service
+                    else
+                        print_info "跳过启动服务"
+                        echo ""
+                        print_info "您可以稍后使用以下命令启动服务："
+                        print_info "  sudo systemctl start smtp-tunnel-client"
+                    fi
+                fi
+            else
+                print_info "跳过 systemd 服务安装"
+                print_info "您可以使用管理脚本手动启动客户端："
+                print_info "  $INSTALL_DIR/start.sh"
+            fi
+        else
+            print_warn "systemd 不可用，跳过 systemd 服务安装"
+            print_info "您可以使用管理脚本手动启动客户端："
+            print_info "  $INSTALL_DIR/start.sh"
+        fi
+    fi
 }
 
 # 打印最终摘要
@@ -725,12 +1114,47 @@ print_summary() {
     echo "   $INSTALL_DIR/client.py"
     echo "   $INSTALL_DIR/socks5_server.py"
     echo ""
+    echo -e "${BLUE}管理脚本:${NC}"
+    echo "   $INSTALL_DIR/start.sh    - 启动客户端"
+    echo "   $INSTALL_DIR/stop.sh     - 停止客户端"
+    echo "   $INSTALL_DIR/status.sh   - 查看状态"
+    echo ""
+    
+    # 检查 systemd 服务是否已安装
+    if [ -f "/etc/systemd/system/smtp-tunnel-client.service" ]; then
+        echo -e "${BLUE}systemd 服务:${NC}"
+        echo "   服务名称: smtp-tunnel-client"
+        echo "   服务文件: /etc/systemd/system/smtp-tunnel-client.service"
+        echo ""
+        echo -e "${BLUE}systemd 命令:${NC}"
+        echo "   sudo systemctl start smtp-tunnel-client    - 启动服务"
+        echo "   sudo systemctl stop smtp-tunnel-client     - 停止服务"
+        echo "   sudo systemctl restart smtp-tunnel-client  - 重启服务"
+        echo "   sudo systemctl status smtp-tunnel-client   - 查看状态"
+        echo "   sudo systemctl enable smtp-tunnel-client   - 开机自启"
+        echo "   sudo systemctl disable smtp-tunnel-client  - 禁用开机自启"
+        echo ""
+        echo -e "${BLUE}查看日志:${NC}"
+        echo "   sudo journalctl -u smtp-tunnel-client -f  - 实时日志"
+        echo "   sudo journalctl -u smtp-tunnel-client -n 100 - 最近 100 条"
+        echo ""
+    fi
+    
     echo -e "${BLUE}卸载:${NC}"
     echo "   $INSTALL_DIR/uninstall-client.sh"
     echo ""
-    echo -e "${BLUE}下一步:${NC}"
-    echo "   1. 编辑配置文件: $INSTALL_DIR/config.yaml"
-    echo "   2. 运行客户端: python $INSTALL_DIR/client.py"
+    echo -e "${BLUE}快速开始:${NC}"
+    if [ -f "/etc/systemd/system/smtp-tunnel-client.service" ]; then
+        echo "   1. 编辑配置文件: $INSTALL_DIR/config.yaml"
+        echo "   2. 启动服务: sudo systemctl start smtp-tunnel-client"
+        echo "   3. 查看状态: sudo systemctl status smtp-tunnel-client"
+        echo "   4. 查看日志: sudo journalctl -u smtp-tunnel-client -f"
+    else
+        echo "   1. 编辑配置文件: $INSTALL_DIR/config.yaml"
+        echo "   2. 启动客户端: $INSTALL_DIR/start.sh"
+        echo "   3. 查看状态: $INSTALL_DIR/status.sh"
+        echo "   4. 查看日志: tail -f $INSTALL_DIR/logs/client.log"
+    fi
     echo ""
     echo -e "${YELLOW}提示:${NC}"
     echo "   如果您使用虚拟环境，请先激活虚拟环境："
@@ -745,8 +1169,6 @@ print_summary() {
     echo "   CentOS/RHEL:"
     echo "     sudo firewall-cmd --permanent --add-port=1080/tcp"
     echo "     sudo firewall-cmd --reload"
-    echo ""
-    echo "   或者，如果您只想在本地使用（默认配置），无需配置防火墙。"
     echo ""
 }
 
