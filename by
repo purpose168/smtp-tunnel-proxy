@@ -1,0 +1,5 @@
+./smtp-tunnel-release.sh --increment minor
+./smtp-tunnel-release.sh --tag
+./smtp-tunnel-release.sh --push-tag
+./smtp-tunnel-release.sh --release
+./smtp-tunnel-release.sh --create-release
