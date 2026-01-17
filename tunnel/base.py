@@ -25,6 +25,8 @@ from protocol import (
     make_frame
 )
 
+logger = logging.getLogger('smtp-tunnel-base')
+
 
 class BaseTunnel(ABC):
     """
