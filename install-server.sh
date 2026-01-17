@@ -1023,20 +1023,6 @@ verify_installation() {
         return 1
     fi
     
-    # 检查配置文件（如果存在）
-    if [ -f "$CONFIG_DIR/config.yaml" ]; then
-        log_info "配置文件已创建: $CONFIG_DIR/config.yaml"
-    else
-        log_warn "配置文件尚未创建（将在交互式设置中创建）"
-    fi
-    
-    # 检查用户文件（如果存在）
-    if [ -f "$CONFIG_DIR/users.yaml" ]; then
-        log_info "用户文件已创建: $CONFIG_DIR/users.yaml"
-    else
-        log_warn "用户文件尚未创建（将在交互式设置中创建）"
-    fi
-    
     log_info "安装验证通过"
     return 0
 }
