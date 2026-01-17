@@ -596,6 +596,7 @@ interactive_setup() {
     generate_start_script
     generate_stop_script
     generate_status_script
+    create_uninstall_script
     
     # systemd 服务配置
     echo ""
