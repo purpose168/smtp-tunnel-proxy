@@ -123,42 +123,119 @@ class BaseTunnel(ABC):
             if not sock:
                 raise Exception("无法获取底层 socket")
 
-            # 创建 SSL 套接字
-            ssl_sock = ssl_context.wrap_socket(
-                sock,
+            # 创建 SSLObject 和 MemoryBIO
+            incoming_bio = ssl.MemoryBIO()
+            outgoing_bio = ssl.MemoryBIO()
+
+            ssl_obj = ssl_context.wrap_bio(
+                incoming_bio,
+                outgoing_bio,
                 server_side=server_side,
-                server_hostname=server_hostname,
-                do_handshake_on_connect=False
+                server_hostname=server_hostname
             )
 
-            # 执行异步 SSL 握手
+            # 执行 SSL 握手
             loop = asyncio.get_event_loop()
             while True:
                 try:
-                    ssl_sock.do_handshake()
+                    ssl_obj.do_handshake()
                     break
                 except ssl.SSLWantReadError:
-                    # 需要读取数据
-                    await loop.sock_recv(ssl_sock, 4096)
+                    # 需要从 socket 读取数据
+                    data = await loop.sock_recv(sock, 4096)
+                    if not data:
+                        raise Exception("连接已关闭")
+                    incoming_bio.write(data)
                 except ssl.SSLWantWriteError:
-                    # 需要写入数据
-                    await loop.sock_sendall(ssl_sock, b'')
+                    # 需要向 socket 写入数据
+                    data = outgoing_bio.read(4096)
+                    if data:
+                        await loop.sock_sendall(sock, data)
 
-            # 创建新的 StreamReader 和 StreamWriter
-            new_reader = asyncio.StreamReader()
-            protocol = asyncio.StreamReaderProtocol(new_reader)
+            # 创建自定义的 TLS 流
+            class TLSStreamReader:
+                def __init__(self, ssl_obj, sock, incoming_bio, outgoing_bio, loop):
+                    self.ssl_obj = ssl_obj
+                    self.sock = sock
+                    self.incoming_bio = incoming_bio
+                    self.outgoing_bio = outgoing_bio
+                    self.loop = loop
+                    self.buffer = b''
 
-            transport, _ = await loop.connect_accepted_socket(
-                lambda: protocol,
-                ssl_sock
-            )
+                async def read(self, n=-1):
+                    while True:
+                        try:
+                            data = self.ssl_obj.read(n)
+                            if data:
+                                return data
+                            # 需要从 socket 读取更多数据
+                            sock_data = await self.loop.sock_recv(self.sock, 4096)
+                            if not sock_data:
+                                return b''
+                            self.incoming_bio.write(sock_data)
+                        except ssl.SSLWantReadError:
+                            sock_data = await self.loop.sock_recv(self.sock, 4096)
+                            if not sock_data:
+                                return b''
+                            self.incoming_bio.write(sock_data)
+                        except ssl.SSLWantWriteError:
+                            data = self.outgoing_bio.read(4096)
+                            if data:
+                                await self.loop.sock_sendall(self.sock, data)
 
-            new_writer = asyncio.StreamWriter(
-                transport,
-                protocol,
-                new_reader,
-                loop
-            )
+                async def readline(self):
+                    while True:
+                        if b'\n' in self.buffer:
+                            line, self.buffer = self.buffer.split(b'\n', 1)
+                            return line
+                        data = await self.read(1024)
+                        if not data:
+                            line = self.buffer
+                            self.buffer = b''
+                            return line
+                        self.buffer += data
+
+            class TLSStreamWriter:
+                def __init__(self, ssl_obj, sock, outgoing_bio, loop):
+                    self.ssl_obj = ssl_obj
+                    self.sock = sock
+                    self.outgoing_bio = outgoing_bio
+                    self.loop = loop
+
+                def write(self, data):
+                    self.ssl_obj.write(data)
+
+                async def drain(self):
+                    while True:
+                        try:
+                            data = self.outgoing_bio.read(4096)
+                            if data:
+                                await self.loop.sock_sendall(self.sock, data)
+                            else:
+                                break
+                        except ssl.SSLWantWriteError:
+                            data = self.outgoing_bio.read(4096)
+                            if data:
+                                await self.loop.sock_sendall(self.sock, data)
+                            else:
+                                break
+
+                def close(self):
+                    try:
+                        self.ssl_obj.unwrap()
+                    except:
+                        pass
+
+                async def wait_closed(self):
+                    pass
+
+                def get_extra_info(self, name, default=None):
+                    if name == 'socket':
+                        return self.sock
+                    return default
+
+            new_reader = TLSStreamReader(ssl_obj, sock, incoming_bio, outgoing_bio, loop)
+            new_writer = TLSStreamWriter(ssl_obj, sock, outgoing_bio, loop)
 
             self.reader = new_reader
             self.writer = new_writer
