@@ -152,23 +152,39 @@ install_dependencies() {
                 
                 # 安装 Remi 仓库（提供 Python 3.8+）
                 print_info "正在安装 Remi 仓库..."
-                if ! yum install -y $DISABLE_SCL https://rpms.remirepo.net/enterprise/remi-release-7.rpm; then
-                    print_error "Remi 仓库安装失败"
+                yum install -y $DISABLE_SCL https://rpms.remirepo.net/enterprise/remi-release-7.rpm || true
+                
+                # 验证 Remi 仓库是否安装
+                if ! rpm -qa | grep -q remi-release; then
+                    print_error "Remi 仓库安装失败：未找到 remi-release 包"
                     print_error "请检查网络连接或手动安装 Remi 仓库"
                     exit 1
                 fi
+                print_info "Remi 仓库已安装"
                 
                 # 启用 Remi 仓库
                 print_info "正在启用 Remi 仓库..."
-                if ! yum-config-manager --enable remi; then
+                yum-config-manager --enable remi || true
+                yum-config-manager --enable remi-safe || true
+                
+                # 验证 Remi 仓库是否启用
+                if ! yum repolist enabled | grep -q remi; then
                     print_error "Remi 仓库启用失败"
+                    print_error ""
+                    print_error "请手动执行以下命令启用 Remi 仓库："
+                    print_error "  yum-config-manager --enable remi"
+                    print_error "  yum-config-manager --enable remi-safe"
                     exit 1
                 fi
+                print_info "Remi 仓库已启用"
                 
                 # 安装 Python 3.8
                 print_info "正在安装 Python 3.8..."
-                if ! yum install -y $DISABLE_SCL python38 python38-pip python38-devel; then
-                    print_error "Python 3.8 安装失败"
+                yum install -y $DISABLE_SCL python38 python38-pip python38-devel || true
+                
+                # 验证 Python 3.8 是否安装成功
+                if [ ! -f /usr/bin/python3.8 ]; then
+                    print_error "Python 3.8 安装失败：未找到 /usr/bin/python3.8"
                     print_error ""
                     print_error "可能的原因："
                     print_error "  1. Remi 仓库未正确启用"
@@ -180,12 +196,7 @@ install_dependencies() {
                     print_error "  yum search python38"
                     exit 1
                 fi
-                
-                # 验证 Python 3.8 是否安装成功
-                if [ ! -f /usr/bin/python3.8 ]; then
-                    print_error "Python 3.8 安装失败：未找到 /usr/bin/python3.8"
-                    exit 1
-                fi
+                print_info "Python 3.8 已安装"
                 
                 # 设置 Python 3.8 为默认 python3
                 # 创建符号链接
