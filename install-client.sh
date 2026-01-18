@@ -13,7 +13,7 @@
 #   - 创建 Python 虚拟环境（如果不存在）
 #   - 安装 Python 依赖包
 #   - 创建默认配置文件（如果不存在）
-#   - 生成管理脚本（start.sh, stop.sh, status.sh）
+#   - 生成管理脚本（start.sh, stop.sh, show.sh）
 #   - 下载更新脚本（smtp-tunnel-client-update）
 #   - 安装 systemd 服务（如果可用）
 #
@@ -592,7 +592,7 @@ non_interactive_setup() {
     print_step "生成管理脚本"
     generate_start_script
     generate_stop_script
-    generate_status_script
+    generate_show_script
     create_uninstall_script
     
     # systemd 服务配置
@@ -640,10 +640,6 @@ server:
   port: 8443
   # CA 证书路径（从服务器获取）
   ca_cert: "config/ca.crt"
-  # 客户端证书路径（从服务器获取）
-  client_cert: "config/client.crt"
-  # 客户端私钥路径（从服务器获取）
-  client_key: "config/client.key"
 
 # SOCKS5 代理配置
 socks5:
@@ -784,7 +780,7 @@ echo "客户端已启动，PID: $CLIENT_PID"
 echo ""
 echo "查看日志: tail -f $LOG_FILE"
 echo "停止客户端: ${SCRIPT_DIR}/stop.sh"
-echo "查看状态: ${SCRIPT_DIR}/status.sh"
+echo "查看状态: ${SCRIPT_DIR}/show.sh"
 EOF
     
     chmod +x "$start_script"
@@ -850,12 +846,12 @@ EOF
 }
 
 # 生成状态脚本
-generate_status_script() {
+generate_show_script() {
     print_step "生成状态脚本..."
     
-    local status_script="$INSTALL_DIR/status.sh"
+    local show_script="$INSTALL_DIR/show.sh"
     
-    cat > "$status_script" << 'EOF'
+    cat > "$show_script" << 'EOF'
 #!/bin/bash
 # SMTP 隧道代理客户端状态脚本
 
@@ -901,8 +897,8 @@ else
 fi
 EOF
     
-    chmod +x "$status_script"
-    print_info "已生成状态脚本: $status_script"
+    chmod +x "$show_script"
+    print_info "已生成状态脚本: $show_script"
 }
 
 # 生成 systemd 服务文件
@@ -1055,22 +1051,7 @@ check_certificates_simple() {
         print_info "CA 证书已存在: $CONFIG_DIR/ca.crt"
     fi
     
-    # 检查客户端证书
-    if [ ! -f "$CONFIG_DIR/client.crt" ]; then
-        print_warn "客户端证书未找到: $CONFIG_DIR/client.crt"
-        cert_missing=true
-    else
-        print_info "客户端证书已存在: $CONFIG_DIR/client.crt"
-    fi
-    
-    # 检查客户端私钥
-    if [ ! -f "$CONFIG_DIR/client.key" ]; then
-        print_warn "客户端私钥未找到: $CONFIG_DIR/client.key"
-        cert_missing=true
-    else
-        print_info "客户端私钥已存在: $CONFIG_DIR/client.key"
-    fi
-    
+        
     if [ "$cert_missing" = true ]; then
         echo ""
         print_warn "缺少证书文件！"
@@ -1078,8 +1059,6 @@ check_certificates_simple() {
         echo -e "${YELLOW}证书文件说明:${NC}"
         echo "   客户端需要以下证书文件才能与服务器建立安全连接："
         echo "   - CA 证书 (ca.crt)"
-        echo "   - 客户端证书 (client.crt)"
-        echo "   - 客户端私钥 (client.key)"
         echo ""
         echo -e "${YELLOW}获取证书的步骤:${NC}"
         echo "   1. 在服务器上运行以下命令创建用户："
@@ -1087,8 +1066,6 @@ check_certificates_simple() {
         echo ""
         echo "   2. 服务器会生成以下证书文件："
         echo "      - /opt/smtp-tunnel/config/ca.crt"
-        echo "      - /opt/smtp-tunnel/config/client-<username>.crt"
-        echo "      - /opt/smtp-tunnel/config/client-<username>.key"
         echo ""
         echo -e "${YELLOW}使用证书下载脚本:${NC}"
         echo "   运行以下命令下载证书："
@@ -1096,8 +1073,6 @@ check_certificates_simple() {
         echo ""
         echo -e "${YELLOW}或使用 scp 手动下载:${NC}"
         echo "   scp root@server:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
-        echo "   scp root@server:/opt/smtp-tunnel/config/client-<username>.crt $CONFIG_DIR/client.crt"
-        echo "   scp root@server:/opt/smtp-tunnel/config/client-<username>.key $CONFIG_DIR/client.key"
         echo ""
         echo -e "${YELLOW}示例:${NC}"
         echo "   假设用户名为 'testuser'，服务器地址为 '192.168.1.100'："
@@ -1108,8 +1083,6 @@ check_certificates_simple() {
         echo "   scp root@192.168.1.100:/opt/smtp-tunnel/config/ca.crt $CONFIG_DIR/"
         echo ""
         echo -e "${YELLOW}注意事项:${NC}"
-        echo "   - 确保将客户端证书重命名为 client.crt"
-        echo "   - 确保将客户端私钥重命名为 client.key"
         echo "   - CA 证书保持为 ca.crt"
         echo "   - 证书文件权限应设置为 600（仅所有者可读写）"
         echo ""
@@ -1145,7 +1118,7 @@ print_summary() {
     echo -e "${BLUE}管理脚本:${NC}"
     echo "   $INSTALL_DIR/start.sh    - 启动客户端"
     echo "   $INSTALL_DIR/stop.sh     - 停止客户端"
-    echo "   $INSTALL_DIR/status.sh   - 查看状态"
+    echo "   $INSTALL_DIR/show.sh   - 查看状态"
     echo "   $INSTALL_DIR/smtp-tunnel-client-update - 更新客户端"
     echo ""
     
@@ -1182,7 +1155,7 @@ print_summary() {
     else
         echo "   1. 编辑配置文件: $INSTALL_DIR/config.yaml"
         echo "   2. 启动客户端: $INSTALL_DIR/start.sh"
-        echo "   3. 查看状态: $INSTALL_DIR/status.sh"
+        echo "   3. 查看状态: $INSTALL_DIR/show.sh"
         echo "   4. 查看日志: tail -f $INSTALL_DIR/logs/client.log"
         echo "   5. 更新客户端: $INSTALL_DIR/smtp-tunnel-client-update"
     fi
