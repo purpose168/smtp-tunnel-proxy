@@ -67,14 +67,18 @@ CA是受信任的第三方机构，负责：
 
 证书链是信任传递的路径，从终端证书到根证书：
 
-```
-终端证书（服务器证书）
-    ↑
-    │ 签发
-中间证书（中间CA）
-    ↑
-    │ 签发
-根证书（根CA，自签名）
+```mermaid
+graph TD
+    Root["根证书（根CA，自签名）"]
+    Intermediate["中间证书（中间CA）"]
+    Terminal["终端证书（服务器证书）"]
+    
+    Root -->|签发| Intermediate
+    Intermediate -->|签发| Terminal
+    
+    style Root fill:#f44336,stroke:#b71c1c,stroke-width:2px
+    style Intermediate fill:#ff9800,stroke:#e65100,stroke-width:2px
+    style Terminal fill:#4caf50,stroke:#2e7d32,stroke-width:2px
 ```
 
 ### 1.3 密码学基础
@@ -284,61 +288,36 @@ TLS 1.2和TLS 1.3的握手过程略有不同，以下是详细说明。
 
 #### 3.1.1 TLS 1.2 握手过程
 
-```
-客户端                                    服务器
-  │                                        │
-  │  1. ClientHello                        │
-  │  - 支持的TLS版本                        │
-  │  - 支持的加密套件                       │
-  │  - 随机数（Client Random）             │
-  │  ─────────────────────────────────────>│
-  │                                        │
-  │  2. ServerHello                        │
-  │  - 选择的TLS版本                        │
-  │  - 选择的加密套件                       │
-  │  - 随机数（Server Random）             │
-  │  - 服务器证书                          │
-  │  <─────────────────────────────────────│
-  │                                        │
-  │  3. Certificate Request（可选）        │
-  │  <─────────────────────────────────────│
-  │                                        │
-  │  4. ServerHelloDone                    │
-  │  <─────────────────────────────────────│
-  │                                        │
-  │  5. 验证服务器证书                      │
-  │  - 检查证书链                          │
-  │  - 验证证书签名                        │
-  │  - 检查有效期                          │
-  │  - 验证域名                            │
-  │  - 检查吊销状态                        │
-  │                                        │
-  │  6. 客户端证书（可选）                 │
-  │  ─────────────────────────────────────>│
-  │                                        │
-  │  7. ClientKeyExchange                  │
-  │  - 预主密钥（Pre-Master Secret）       │
-  │  - 使用服务器公钥加密                  │
-  │  ─────────────────────────────────────>│
-  │                                        │
-  │  8. CertificateVerify（可选）          │
-  │  ─────────────────────────────────────>│
-  │                                        │
-  │  9. ChangeCipherSpec                  │
-  │  ─────────────────────────────────────>│
-  │                                        │
-  │  10. Finished                         │
-  │  - 使用会话密钥加密                    │
-  │  ─────────────────────────────────────>│
-  │                                        │
-  │  11. ChangeCipherSpec                  │
-  │  <─────────────────────────────────────│
-  │                                        │
-  │  12. Finished                         │
-  │  - 使用会话密钥加密                    │
-  │  <─────────────────────────────────────│
-  │                                        │
-  │  ✓ 握手完成，开始加密通信               │
+```mermaid
+sequenceDiagram
+    participant Client as 客户端
+    participant Server as 服务器
+
+    Client->>Server: 1. ClientHello<br/>- 支持的TLS版本<br/>- 支持的加密套件<br/>- 随机数（Client Random）
+    
+    Server-->>Client: 2. ServerHello<br/>- 选择的TLS版本<br/>- 选择的加密套件<br/>- 随机数（Server Random）<br/>- 服务器证书
+    
+    Server-->>Client: 3. Certificate Request（可选）
+    
+    Server-->>Client: 4. ServerHelloDone
+    
+    Note over Client: 5. 验证服务器证书<br/>- 检查证书链<br/>- 验证证书签名<br/>- 检查有效期<br/>- 验证域名<br/>- 检查吊销状态
+    
+    Client->>Server: 6. 客户端证书（可选）
+    
+    Client->>Server: 7. ClientKeyExchange<br/>- 预主密钥（Pre-Master Secret）<br/>- 使用服务器公钥加密
+    
+    Client->>Server: 8. CertificateVerify（可选）
+    
+    Client->>Server: 9. ChangeCipherSpec
+    
+    Client->>Server: 10. Finished<br/>- 使用会话密钥加密
+    
+    Server-->>Client: 11. ChangeCipherSpec
+    
+    Server-->>Client: 12. Finished<br/>- 使用会话密钥加密
+    
+    Note over Client,Server: ✓ 握手完成，开始加密通信
 ```
 
 #### 3.1.2 TLS 1.3 握手过程
@@ -429,53 +408,34 @@ sequenceDiagram
 
 ### 3.4 证书验证流程
 
-```
-客户端收到服务器证书
-         │
-         ▼
-┌─────────────────┐
-│ 1. 检查有效期    │
-│    - Not Before │
-│    - Not After  │
-└────────┬────────┘
-         │ 有效
-         ▼
-┌─────────────────┐
-│ 2. 验证域名      │
-│    - CN匹配      │
-│    - SAN匹配     │
-└────────┬────────┘
-         │ 匹配
-         ▼
-┌─────────────────┐
-│ 3. 构建证书链    │
-│    - 获取中间证书│
-│    - 定位根证书  │
-└────────┬────────┘
-         │ 成功
-         ▼
-┌─────────────────┐
-│ 4. 验证签名      │
-│    - 逐级验证    │
-│    - 检查签名算法│
-└────────┬────────┘
-         │ 有效
-         ▼
-┌─────────────────┐
-│ 5. 检查吊销状态  │
-│    - CRL检查     │
-│    - OCSP检查    │
-└────────┬────────┘
-         │ 未吊销
-         ▼
-┌─────────────────┐
-│ 6. 检查策略      │
-│    - 证书策略    │
-│    - 用途限制    │
-└────────┬────────┘
-         │ 符合
-         ▼
-    ✓ 证书验证通过
+```mermaid
+graph TD
+    Start[客户端收到服务器证书]
+    
+    Step1["1. 检查有效期<br/>- Not Before<br/>- Not After"]
+    Step2["2. 验证域名<br/>- CN匹配<br/>- SAN匹配"]
+    Step3["3. 构建证书链<br/>- 获取中间证书<br/>- 定位根证书"]
+    Step4["4. 验证签名<br/>- 逐级验证<br/>- 检查签名算法"]
+    Step5["5. 检查吊销状态<br/>- CRL检查<br/>- OCSP检查"]
+    Step6["6. 检查策略<br/>- 证书策略<br/>- 用途限制"]
+    Success["✓ 证书验证通过"]
+    
+    Start --> Step1
+    Step1 -->|有效| Step2
+    Step2 -->|匹配| Step3
+    Step3 -->|成功| Step4
+    Step4 -->|有效| Step5
+    Step5 -->|未吊销| Step6
+    Step6 -->|符合| Success
+    
+    style Start fill:#e3f2fd,stroke:#1a237e,stroke-width:2px
+    style Step1 fill:#bbdefb,stroke:#0d47a1,stroke-width:2px
+    style Step2 fill:#90caf9,stroke:#01579b,stroke-width:2px
+    style Step3 fill:#64b5f6,stroke:#013a63,stroke-width:2px
+    style Step4 fill:#42a5f5,stroke:#004d40,stroke-width:2px
+    style Step5 fill:#26c6da,stroke:#006064,stroke-width:2px
+    style Step6 fill:#00bcd4,stroke:#006064,stroke-width:2px
+    style Success fill:#4caf50,stroke:#1b5e20,stroke-width:3px
 ```
 
 ---
@@ -743,64 +703,34 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 
 ### 4.5 证书申请流程图
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    证书申请流程                           │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  1. 准备阶段           │
-                │  - 生成私钥            │
-                │  - 创建CSR             │
-                │  - 准备验证材料        │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  2. 选择CA            │
-                │  - 商业CA或Let's Encrypt│
-                │  - 选择证书类型        │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  3. 提交申请          │
-                │  - 提交CSR             │
-                │  - 填写组织信息        │
-                │  - 选择验证方式        │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  4. 身份验证          │
-                │  - DV: 域名验证        │
-                │  - OV: 组织验证        │
-                │  - EV: 扩展验证        │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  5. 证书签发          │
-                │  - CA签发证书          │
-                │  - 提供证书链          │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  6. 安装配置          │
-                │  - 安装证书            │
-                │  - 配置服务器          │
-                │  - 测试验证            │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  7. 维护管理          │
-                │  - 监控有效期          │
-                │  - 定期更新            │
-                │  - 安全审计            │
-                └───────────────────────┘
+```mermaid
+graph TD
+    Title["证书申请流程"]
+    
+    Step1["1. 准备阶段<br/>- 生成私钥<br/>- 创建CSR<br/>- 准备验证材料"]
+    Step2["2. 选择CA<br/>- 商业CA或Let's Encrypt<br/>- 选择证书类型"]
+    Step3["3. 提交申请<br/>- 提交CSR<br/>- 填写组织信息<br/>- 选择验证方式"]
+    Step4["4. 身份验证<br/>- DV: 域名验证<br/>- OV: 组织验证<br/>- EV: 扩展验证"]
+    Step5["5. 证书签发<br/>- CA签发证书<br/>- 提供证书链"]
+    Step6["6. 安装配置<br/>- 安装证书<br/>- 配置服务器<br/>- 测试验证"]
+    Step7["7. 维护管理<br/>- 监控有效期<br/>- 定期更新<br/>- 安全审计"]
+    
+    Title --> Step1
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 --> Step4
+    Step4 --> Step5
+    Step5 --> Step6
+    Step6 --> Step7
+    
+    style Title fill:#f5f5f5,stroke:#424242,stroke-width:3px
+    style Step1 fill:#e3f2fd,stroke:#1a237e,stroke-width:2px
+    style Step2 fill:#bbdefb,stroke:#0d47a1,stroke-width:2px
+    style Step3 fill:#90caf9,stroke:#01579b,stroke-width:2px
+    style Step4 fill:#64b5f6,stroke:#013a63,stroke-width:2px
+    style Step5 fill:#42a5f5,stroke:#004d40,stroke-width:2px
+    style Step6 fill:#26c6da,stroke:#006064,stroke-width:2px
+    style Step7 fill:#00bcd4,stroke:#006064,stroke-width:2px
 ```
 
 ---
@@ -1516,66 +1446,37 @@ openssl ca -gencrl -out ca.crl -config revoke.cnf
 
 #### 6.3.1 生命周期阶段
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  证书生命周期                             │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  1. 密钥生成          │
-                │  - 生成密钥对         │
-                │  - 创建CSR            │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  2. 证书申请          │
-                │  - 提交CSR            │
-                │  - 身份验证           │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  3. 证书签发          │
-                │  - CA签发             │
-                │  - 证书发布           │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  4. 证书部署          │
-                │  - 安装证书           │
-                │  - 配置服务           │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  5. 证书使用          │
-                │  - 正常运行           │
-                │  - 定期监控           │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  6. 证书续期          │
-                │  - 检测过期           │
-                │  - 自动续期           │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  7. 证书吊销（可选）  │
-                │  - 私钥泄露           │
-                │  - 证书错误           │
-                └───────────┬───────────┘
-                            │
-                            ▼
-                ┌───────────────────────┐
-                │  8. 证书过期          │
-                │  - 自然过期           │
-                │  - 清理归档           │
-                └───────────────────────┘
+```mermaid
+graph TD
+    Title["证书生命周期"]
+    
+    Step1["1. 密钥生成<br/>- 生成密钥对<br/>- 创建CSR"]
+    Step2["2. 证书申请<br/>- 提交CSR<br/>- 身份验证"]
+    Step3["3. 证书签发<br/>- CA签发<br/>- 证书发布"]
+    Step4["4. 证书部署<br/>- 安装证书<br/>- 配置服务"]
+    Step5["5. 证书使用<br/>- 正常运行<br/>- 定期监控"]
+    Step6["6. 证书续期<br/>- 检测过期<br/>- 自动续期"]
+    Step7["7. 证书吊销（可选）<br/>- 私钥泄露<br/>- 证书错误"]
+    Step8["8. 证书过期<br/>- 自然过期<br/>- 清理归档"]
+    
+    Title --> Step1
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 --> Step4
+    Step4 --> Step5
+    Step5 --> Step6
+    Step6 --> Step7
+    Step7 --> Step8
+    
+    style Title fill:#f5f5f5,stroke:#424242,stroke-width:3px
+    style Step1 fill:#e3f2fd,stroke:#1a237e,stroke-width:2px
+    style Step2 fill:#bbdefb,stroke:#0d47a1,stroke-width:2px
+    style Step3 fill:#90caf9,stroke:#01579b,stroke-width:2px
+    style Step4 fill:#64b5f6,stroke:#013a63,stroke-width:2px
+    style Step5 fill:#42a5f5,stroke:#004d40,stroke-width:2px
+    style Step6 fill:#26c6da,stroke:#006064,stroke-width:2px
+    style Step7 fill:#ff9800,stroke:#e65100,stroke-width:2px
+    style Step8 fill:#9e9e9e,stroke:#616161,stroke-width:2px
 ```
 
 #### 6.3.2 证书管理最佳实践
