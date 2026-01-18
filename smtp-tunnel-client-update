@@ -517,27 +517,6 @@ update_files() {
     return $FAILED
 }
 
-# 更新管理脚本
-update_management_scripts() {
-    print_step "更新管理脚本..."
-    
-    local scripts="start.sh stop.sh status.sh"
-    local success_count=0
-    
-    for script in $scripts; do
-        if download_file "$script" "$TEMP_DIR/$script"; then
-            if verify_file "$TEMP_DIR/$script"; then
-                mv "$TEMP_DIR/$script" "$INSTALL_DIR/$script"
-                chmod +x "$INSTALL_DIR/$script"
-                success_count=$((success_count + 1))
-                print_debug "更新成功: $script"
-            fi
-        fi
-    done
-    
-    print_info "管理脚本更新完成: $success_count 个脚本"
-    log_message "INFO" "管理脚本更新完成"
-}
 
 # 设置文件权限
 set_permissions() {
@@ -939,9 +918,7 @@ main() {
         exit 1
     fi
     
-    # 更新管理脚本
-    update_management_scripts
-    
+  
     # 设置文件权限
     set_permissions
     

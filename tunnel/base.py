@@ -106,141 +106,28 @@ class BaseTunnel(ABC):
     async def upgrade_tls(self, ssl_context, server_side: bool = False, server_hostname: str = None):
         """
         将现有 TCP 连接升级到 TLS 加密连接
-
+        
         Args:
             ssl_context: SSL 上下文
             server_side: 是否为服务器端
             server_hostname: 服务器主机名（客户端使用）
         """
         logger.info(f"升级到 TLS 连接（server_side={server_side}, server_hostname={server_hostname}）")
-
+        
         try:
             reader = self.reader
             writer = self.writer
-
-            # 获取 transport
-            transport = writer.transport
-            if not transport:
-                raise Exception("无法获取 transport")
-
-            # 创建 SSLObject 和 MemoryBIO
-            incoming_bio = ssl.MemoryBIO()
-            outgoing_bio = ssl.MemoryBIO()
-
-            ssl_obj = ssl_context.wrap_bio(
-                incoming_bio,
-                outgoing_bio,
-                server_side=server_side,
-                server_hostname=server_hostname
-            )
-
-            # 执行 SSL 握手
-            while True:
-                try:
-                    ssl_obj.do_handshake()
-                    break
-                except ssl.SSLWantReadError:
-                    # 需要从 transport 读取数据
-                    data = await reader.read(4096)
-                    if not data:
-                        raise Exception("连接已关闭")
-                    incoming_bio.write(data)
-                except ssl.SSLWantWriteError:
-                    # 需要向 transport 写入数据
-                    data = outgoing_bio.read(4096)
-                    if data:
-                        writer.write(data)
-                        await writer.drain()
-
-            # 创建自定义的 TLS 流
-            class TLSStreamReader:
-                def __init__(self, ssl_obj, incoming_bio, outgoing_bio, writer, loop, original_reader):
-                    self.ssl_obj = ssl_obj
-                    self.incoming_bio = incoming_bio
-                    self.outgoing_bio = outgoing_bio
-                    self.writer = writer
-                    self.loop = loop
-                    self.original_reader = original_reader
-                    self.buffer = b''
-
-                async def read(self, n=-1):
-                    while True:
-                        try:
-                            data = self.ssl_obj.read(n)
-                            if data:
-                                return data
-                            # 需要从 transport 读取更多数据
-                            sock_data = await self.original_reader.read(4096)
-                            if not sock_data:
-                                return b''
-                            self.incoming_bio.write(sock_data)
-                        except ssl.SSLWantReadError:
-                            sock_data = await self.original_reader.read(4096)
-                            if not sock_data:
-                                return b''
-                            self.incoming_bio.write(sock_data)
-                        except ssl.SSLWantWriteError:
-                            data = self.outgoing_bio.read(4096)
-                            if data:
-                                self.writer.write(data)
-                                await self.writer.drain()
-
-                async def readline(self):
-                    while True:
-                        if b'\n' in self.buffer:
-                            line, self.buffer = self.buffer.split(b'\n', 1)
-                            return line
-                        data = await self.read(1024)
-                        if not data:
-                            line = self.buffer
-                            self.buffer = b''
-                            return line
-                        self.buffer += data
-
-            class TLSStreamWriter:
-                def __init__(self, ssl_obj, outgoing_bio, writer, loop):
-                    self.ssl_obj = ssl_obj
-                    self.outgoing_bio = outgoing_bio
-                    self.writer = writer
-                    self.loop = loop
-
-                def write(self, data):
-                    self.ssl_obj.write(data)
-
-                async def drain(self):
-                    while True:
-                        try:
-                            data = self.outgoing_bio.read(4096)
-                            if data:
-                                self.writer.write(data)
-                                await self.writer.drain()
-                            else:
-                                break
-                        except ssl.SSLWantWriteError:
-                            data = self.outgoing_bio.read(4096)
-                            if data:
-                                self.writer.write(data)
-                                await self.writer.drain()
-                            else:
-                                break
-
-                def close(self):
-                    try:
-                        self.ssl_obj.unwrap()
-                    except:
-                        pass
-
-                async def wait_closed(self):
-                    pass
-
-                def get_extra_info(self, name, default=None):
-                    if name == 'socket':
-                        return self.writer.transport.get_extra_info('socket')
-                    return default
-
-            new_reader = TLSStreamReader(ssl_obj, incoming_bio, outgoing_bio, writer, loop, reader)
-            new_writer = TLSStreamWriter(ssl_obj, outgoing_bio, writer, loop)
-
+            
+            if server_side:
+                new_reader, new_writer = await asyncio.start_tls(
+                    reader, writer, ssl_context, server_side=True
+                )
+            else:
+                new_reader, new_writer = await asyncio.start_tls(
+                    reader, writer, ssl_context,
+                    server_hostname=server_hostname
+                )
+            
             self.reader = new_reader
             self.writer = new_writer
             logger.info("TLS 连接升级成功")
