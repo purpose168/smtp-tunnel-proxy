@@ -134,24 +134,27 @@ install_dependencies() {
             if [ "$OS" = "centos" ] && [ "$OS_VERSION" = "7" ]; then
                 print_info "检测到 CentOS 7，需要安装 Python 3.8+"
                 
+                # 定义禁用 SCL 仓库的参数（SCL 仓库已不可用，会干扰 yum 命令）
+                DISABLE_SCL="--disablerepo=centos-sclo-rh,centos-sclo-scloful"
+                
                 # 安装 EPEL 仓库
-                yum install -y -q epel-release
+                yum install -y -q $DISABLE_SCL epel-release
                 
                 # 安装 yum-utils（包含 yum-config-manager）
-                yum install -y -q yum-utils
+                yum install -y -q $DISABLE_SCL yum-utils
                 
                 # 禁用旧的 SCL 仓库（如果存在）
                 yum-config-manager --disable centos-sclo-rh 2>/dev/null || true
                 yum-config-manager --disable centos-sclo-scloful 2>/dev/null || true
                 
                 # 安装 Remi 仓库（提供 Python 3.8+）
-                yum install -y -q https://rpms.remirepo.net/enterprise/remi-release-7.rpm
+                yum install -y -q $DISABLE_SCL https://rpms.remirepo.net/enterprise/remi-release-7.rpm
                 
                 # 启用 Remi 仓库
                 yum-config-manager --enable remi
                 
                 # 安装 Python 3.8
-                yum install -y -q python38 python38-pip python38-devel
+                yum install -y -q $DISABLE_SCL python38 python38-pip python38-devel
                 
                 # 设置 Python 3.8 为默认 python3
                 # 创建符号链接
