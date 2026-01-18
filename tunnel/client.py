@@ -205,8 +205,8 @@ class TunnelClient(BaseTunnel):
     async def _upgrade_tls_client(self):
         """
         将现有 TCP 连接升级到 TLS 加密连接
-        
-        使用 asyncio.start_tls 在现有传输上启动 TLS 握手。
+
+        使用 loop.start_tls 在现有传输上启动 TLS 握手。
         如果提供了 CA 证书，则验证服务器证书；否则跳过验证（仅用于测试）。
         """
         ssl_context = ssl.create_default_context()

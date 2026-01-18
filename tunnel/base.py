@@ -106,28 +106,30 @@ class BaseTunnel(ABC):
     async def upgrade_tls(self, ssl_context, server_side: bool = False, server_hostname: str = None):
         """
         将现有 TCP 连接升级到 TLS 加密连接
-        
+
         Args:
             ssl_context: SSL 上下文
             server_side: 是否为服务器端
             server_hostname: 服务器主机名（客户端使用）
         """
         logger.info(f"升级到 TLS 连接（server_side={server_side}, server_hostname={server_hostname}）")
-        
+
         try:
             reader = self.reader
             writer = self.writer
-            
+
+            loop = asyncio.get_event_loop()
+
             if server_side:
-                new_reader, new_writer = await asyncio.start_tls(
+                new_reader, new_writer = await loop.start_tls(
                     reader, writer, ssl_context, server_side=True
                 )
             else:
-                new_reader, new_writer = await asyncio.start_tls(
+                new_reader, new_writer = await loop.start_tls(
                     reader, writer, ssl_context,
                     server_hostname=server_hostname
                 )
-            
+
             self.reader = new_reader
             self.writer = new_writer
             logger.info("TLS 连接升级成功")
