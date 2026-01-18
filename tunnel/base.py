@@ -118,17 +118,47 @@ class BaseTunnel(ABC):
             reader = self.reader
             writer = self.writer
 
-            loop = asyncio.get_event_loop()
+            # 获取底层 socket
+            sock = writer.transport.get_extra_info('socket')
+            if not sock:
+                raise Exception("无法获取底层 socket")
 
-            if server_side:
-                new_reader, new_writer = await loop.start_tls(
-                    reader, writer, ssl_context, server_side=True
-                )
-            else:
-                new_reader, new_writer = await loop.start_tls(
-                    reader, writer, ssl_context,
-                    server_hostname=server_hostname
-                )
+            # 创建 SSL 套接字
+            ssl_sock = ssl_context.wrap_socket(
+                sock,
+                server_side=server_side,
+                server_hostname=server_hostname,
+                do_handshake_on_connect=False
+            )
+
+            # 执行异步 SSL 握手
+            loop = asyncio.get_event_loop()
+            while True:
+                try:
+                    ssl_sock.do_handshake()
+                    break
+                except ssl.SSLWantReadError:
+                    # 需要读取数据
+                    await loop.sock_recv(ssl_sock, 4096)
+                except ssl.SSLWantWriteError:
+                    # 需要写入数据
+                    await loop.sock_sendall(ssl_sock, b'')
+
+            # 创建新的 StreamReader 和 StreamWriter
+            new_reader = asyncio.StreamReader()
+            protocol = asyncio.StreamReaderProtocol(new_reader)
+
+            transport, _ = await loop.connect_accepted_socket(
+                lambda: protocol,
+                ssl_sock
+            )
+
+            new_writer = asyncio.StreamWriter(
+                transport,
+                protocol,
+                new_reader,
+                loop
+            )
 
             self.reader = new_reader
             self.writer = new_writer
