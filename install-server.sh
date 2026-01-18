@@ -130,10 +130,39 @@ install_dependencies() {
             apt-get install -y -qq python3 python3-pip python3-venv python3-dev curl
             ;;
         centos|rhel|rocky|alma)
-            if command -v dnf &> /dev/null; then
-                dnf install -y python3 python3-pip python3-devel curl
+            # 检测 CentOS 7
+            if [ "$OS" = "centos" ] && [ "$OS_VERSION" = "7" ]; then
+                print_info "检测到 CentOS 7，需要安装 Python 3.8+"
+                
+                # 安装 EPEL 仓库
+                yum install -y -q epel-release
+                
+                # 安装 Software Collections 仓库
+                yum install -y -q centos-release-scl
+                
+                # 安装 Python 3.8
+                yum install -y -q rh-python38 rh-python38-python-pip rh-python38-python-devel
+                
+                # 设置 Python 3.8 为默认 python3
+                # 创建符号链接
+                if [ ! -f /usr/local/bin/python3 ]; then
+                    ln -sf /opt/rh/rh-python38/root/usr/bin/python3 /usr/local/bin/python3
+                fi
+                if [ ! -f /usr/local/bin/pip3 ]; then
+                    ln -sf /opt/rh/rh-python38/root/usr/bin/pip3 /usr/local/bin/pip3
+                fi
+                
+                # 更新 PATH 环境变量
+                export PATH="/opt/rh/rh-python38/root/usr/bin:$PATH"
+                
+                print_info "Python 3.8 已安装"
             else
-                yum install -y python3 python3-pip python3-devel curl
+                # CentOS 8+ 或其他 RHEL 系发行版
+                if command -v dnf &> /dev/null; then
+                    dnf install -y python3 python3-pip python3-devel curl
+                else
+                    yum install -y python3 python3-pip python3-devel curl
+                fi
             fi
             ;;
         fedora)
@@ -158,6 +187,14 @@ install_dependencies() {
         
         if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]); then
             print_error "Python 3.8+ 是必需的，当前版本: $PYTHON_VERSION"
+            print_error ""
+            print_error "对于 CentOS 7，请手动执行以下命令安装 Python 3.8+:"
+            print_error "  yum install -y epel-release"
+            print_error "  yum install -y centos-release-scl"
+            print_error "  yum install -y rh-python38 rh-python38-python-pip rh-python38-python-devel"
+            print_error "  ln -sf /opt/rh/rh-python38/root/usr/bin/python3 /usr/local/bin/python3"
+            print_error ""
+            print_error "对于其他系统，请安装 Python 3.8+ 后重新运行此脚本"
             exit 1
         fi
         
@@ -468,7 +505,19 @@ create_venv() {
     # 创建虚拟环境
     print_info "正在创建虚拟环境: $VENV_DIR"
     
-    if python3 -m venv "$VENV_DIR"; then
+    # 确保使用正确的 python3 命令
+    # 对于 CentOS 7，python3 应该指向 /usr/local/bin/python3
+    PYTHON3_CMD=$(which python3)
+    if [ -z "$PYTHON3_CMD" ]; then
+        print_error "未找到 python3 命令"
+        return 1
+    fi
+    
+    print_info "使用 Python: $PYTHON3_CMD"
+    print_info "Python 版本: $($PYTHON3_CMD --version)"
+    
+    # 使用 python3 命令创建虚拟环境
+    if "$PYTHON3_CMD" -m venv "$VENV_DIR"; then
         print_info "虚拟环境创建成功"
         return 0
     else
@@ -658,8 +707,15 @@ generate_certificates() {
     
     print_info "为主机名生成证书: $HOSTNAME"
     
+    # 获取正确的 python3 命令
+    PYTHON3_CMD=$(which python3)
+    if [ -z "$PYTHON3_CMD" ]; then
+        print_error "未找到 python3 命令"
+        return 1
+    fi
+    
     # 生成证书
-    if python3 generate_certs.py --hostname "$HOSTNAME" --output-dir "$CONFIG_DIR"; then
+    if "$PYTHON3_CMD" generate_certs.py --hostname "$HOSTNAME" --output-dir "$CONFIG_DIR"; then
         print_info "证书生成成功"
         
         # 创建符号链接以便 adduser 脚本可以找到 ca.crt
@@ -671,7 +727,7 @@ generate_certificates() {
     else
         print_error "证书生成失败。您可以手动尝试:"
         echo "    cd $INSTALL_DIR"
-        echo "    python3 generate_certs.py --hostname $HOSTNAME --output-dir $CONFIG_DIR"
+        echo "    $PYTHON3_CMD generate_certs.py --hostname $HOSTNAME --output-dir $CONFIG_DIR"
         return 1
     fi
 }
@@ -887,7 +943,15 @@ EOF
     echo ""
     print_step "为 $DOMAIN_NAME 生成 TLS 证书..."
     cd "$INSTALL_DIR"
-    if python3 generate_certs.py --hostname "$DOMAIN_NAME" --output-dir "$CONFIG_DIR"; then
+    
+    # 获取正确的 python3 命令
+    PYTHON3_CMD=$(which python3)
+    if [ -z "$PYTHON3_CMD" ]; then
+        print_error "未找到 python3 命令"
+        exit 1
+    fi
+    
+    if "$PYTHON3_CMD" generate_certs.py --hostname "$DOMAIN_NAME" --output-dir "$CONFIG_DIR"; then
         print_info "证书生成成功"
         
         # 创建符号链接以便 adduser 脚本可以找到 ca.crt
@@ -898,7 +962,7 @@ EOF
     else
         print_error "证书生成失败。您可以手动尝试:"
         echo "    cd $INSTALL_DIR"
-        echo "    python3 generate_certs.py --hostname $DOMAIN_NAME --output-dir $CONFIG_DIR"
+        echo "    $PYTHON3_CMD generate_certs.py --hostname $DOMAIN_NAME --output-dir $CONFIG_DIR"
         exit 1
     fi
     
@@ -919,7 +983,14 @@ EOF
             cd "$INSTALL_DIR"
             source "$VENV_DIR/bin/activate"
             
-            if python3 smtp-tunnel-adduser "$FIRST_USER"; then
+            # 获取正确的 python3 命令
+            PYTHON3_CMD=$(which python3)
+            if [ -z "$PYTHON3_CMD" ]; then
+                print_error "未找到 python3 命令"
+                exit 1
+            fi
+            
+            if "$PYTHON3_CMD" smtp-tunnel-adduser "$FIRST_USER"; then
                 echo ""
                 print_info "用户 '$FIRST_USER' 创建成功！"
                 print_info "客户端包: $INSTALL_DIR/${FIRST_USER}.zip"
