@@ -137,6 +137,13 @@ install_dependencies() {
                 # 安装 EPEL 仓库
                 yum install -y -q epel-release
                 
+                # 安装 yum-utils（包含 yum-config-manager）
+                yum install -y -q yum-utils
+                
+                # 禁用旧的 SCL 仓库（如果存在）
+                yum-config-manager --disable centos-sclo-rh 2>/dev/null || true
+                yum-config-manager --disable centos-sclo-scloful 2>/dev/null || true
+                
                 # 安装 Remi 仓库（提供 Python 3.8+）
                 yum install -y -q https://rpms.remirepo.net/enterprise/remi-release-7.rpm
                 
@@ -193,6 +200,8 @@ install_dependencies() {
             print_error ""
             print_error "对于 CentOS 7，请手动执行以下命令安装 Python 3.8+:"
             print_error "  yum install -y epel-release"
+            print_error "  yum install -y yum-utils"
+            print_error "  yum-config-manager --disable centos-sclo-rh 2>/dev/null || true"
             print_error "  yum install -y https://rpms.remirepo.net/enterprise/remi-release-7.rpm"
             print_error "  yum-config-manager --enable remi"
             print_error "  yum install -y python38 python38-pip python38-devel"
