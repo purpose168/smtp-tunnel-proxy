@@ -2960,4 +2960,4 @@ ECDSA 证书作为一种高效、安全的公钥证书方案，在现代网络�
 **文档版本**：1.0
 **最后更新**：2026-01-18
 **维护者**：SMTP Tunnel Proxy Team
-**联系方式**：support@example.com
+**联系方式**：purpose168@outlook.com

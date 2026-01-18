@@ -307,31 +307,40 @@ RSA 证书是一种使用 RSA 公钥加密算法的 X.509 证书。证书包含�
 
 **RSA 证书的核心组件**：
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    RSA 证书结构                            │
-├─────────────────────────────────────────────────────────────┤
-│ 1. 版本 (Version)                                         │
-│    - 版本号：v3                                          │
-│ 2. 序列号 (Serial Number)                                 │
-│    - 证书唯一标识符                                       │
-│ 3. 签名算法 (Signature Algorithm)                          │
-│    - 签名算法：sha256WithRSAEncryption                   │
-│ 4. 颁发者 (Issuer)                                       │
-│    - 签发证书的 CA                                       │
-│ 5. 有效期 (Validity)                                      │
-│    - Not Before: 生效时间                                 │
-│    - Not After: 过期时间                                  │
-│ 6. 主题 (Subject)                                         │
-│    - 证书持有者信息                                       │
-│ 7. 主题公钥信息 (Subject Public Key Info)                 │
-│    - 公钥算法：RSA                                        │
-│    - RSA 公钥：模数 n 和公钥指数 e                        │
-│ 8. 扩展 (Extensions)                                     │
-│    - Key Usage, Extended Key Usage, SAN 等                  │
-│ 9. 签名 (Signature)                                      │
-│    - CA 对证书的 RSA 签名                                 │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    Root[RSA 证书结构]
+    
+    V1[版本<br/>Version<br/>版本号：v3]
+    V2[序列号<br/>Serial Number<br/>证书唯一标识符]
+    V3[签名算法<br/>Signature Algorithm<br/>签名算法：sha256WithRSAEncryption]
+    V4[颁发者<br/>Issuer<br/>签发证书的 CA]
+    V5[有效期<br/>Validity<br/>Not Before: 生效时间<br/>Not After: 过期时间]
+    V6[主题<br/>Subject<br/>证书持有者信息]
+    V7[主题公钥信息<br/>Subject Public Key Info<br/>公钥算法：RSA<br/>RSA 公钥：模数 n 和公钥指数 e]
+    V8[扩展<br/>Extensions<br/>Key Usage, Extended Key Usage, SAN 等]
+    V9[签名<br/>Signature<br/>CA 对证书的 RSA 签名]
+    
+    Root --> V1
+    Root --> V2
+    Root --> V3
+    Root --> V4
+    Root --> V5
+    Root --> V6
+    Root --> V7
+    Root --> V8
+    Root --> V9
+    
+    style Root fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style V1 fill:#bbdefb,stroke:#1976d2
+    style V2 fill:#bbdefb,stroke:#1976d2
+    style V3 fill:#bbdefb,stroke:#1976d2
+    style V4 fill:#bbdefb,stroke:#1976d2
+    style V5 fill:#bbdefb,stroke:#1976d2
+    style V6 fill:#bbdefb,stroke:#1976d2
+    style V7 fill:#bbdefb,stroke:#1976d2
+    style V8 fill:#bbdefb,stroke:#1976d2
+    style V9 fill:#bbdefb,stroke:#1976d2
 ```
 
 ### 3.2 RSA 证书的公钥信息

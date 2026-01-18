@@ -378,24 +378,23 @@ sequenceDiagram
 #### 3.4.2 验证流程
 
 ```mermaid
-graph TD
-    Start[开始域名所有权验证]
-    
+flowchart TD
+    Start([开始域名所有权验证])
     Step1["1. 选择验证方式<br/>- DNS TXT<br/>- HTTP文件<br/>- 邮箱验证"]
     
-    alt DNS验证
+    subgraph DNS验证
         Step2A["2. 添加DNS TXT记录<br/>- _acme-challenge.example.com<br/>- 验证字符串"]
         Step3A["3. 等待DNS传播<br/>- 通常1-5分钟<br/>- 最多24小时"]
         Step4A["4. CA验证DNS记录<br/>- 查询TXT记录<br/>- 验证匹配"]
     end
     
-    alt HTTP验证
+    subgraph HTTP验证
         Step2B["5. 创建验证文件<br/>- .well-known/acme-challenge/<br/>- 验证令牌"]
         Step3B["6. 配置Web服务器<br/>- 允许访问<br/>- 设置MIME类型"]
         Step4B["7. CA验证文件<br/>- HTTP GET请求<br/>- 验证内容"]
     end
     
-    alt 邮箱验证
+    subgraph 邮箱验证
         Step2C["8. 发送验证邮件<br/>- 包含验证链接<br/>- 验证码"]
         Step3C["9. 点击验证链接<br/>- 确认验证"]
         Step4C["10. 验证成功"]
@@ -417,18 +416,18 @@ graph TD
     Step4B --> Step5
     Step4C --> Step5
     
-    style Start fill:#e3f2fd,stroke:#1a237e
-    style Step1 fill:#bbdefb,stroke:#0d47a1
-    style Step2A fill:#90caf9,stroke:#01579b
-    style Step3A fill:#64b5f6,stroke:#013a63
-    style Step4A fill:#42a5f5,stroke:#004d40
-    style Step2B fill:#26c6da,stroke:#006064
-    style Step3B fill:#00bcd4,stroke:#006064
-    style Step4B fill:#00acc1,stroke:#006064
-    style Step2C fill:#0097a7,stroke:#006064
-    style Step3C fill:#00838f,stroke:#006064
-    style Step4C fill:#006064,stroke:#004d40
-    style Step5 fill:#f44336,stroke:#b71c1c
+    style Start fill:#e3f2fd,stroke:#1a237e,stroke-width:2px
+    style Step1 fill:#bbdefb,stroke:#0d47a1,stroke-width:2px
+    style Step2A fill:#90caf9,stroke:#01579b,stroke-width:2px
+    style Step3A fill:#64b5f6,stroke:#013a63,stroke-width:2px
+    style Step4A fill:#42a5f5,stroke:#004d40,stroke-width:2px
+    style Step2B fill:#26c6da,stroke:#006064,stroke-width:2px
+    style Step3B fill:#00bcd4,stroke:#006064,stroke-width:2px
+    style Step4B fill:#00acc1,stroke:#006064,stroke-width:2px
+    style Step2C fill:#0097a7,stroke:#006064,stroke-width:2px
+    style Step3C fill:#00838f,stroke:#006064,stroke-width:2px
+    style Step4C fill:#006064,stroke:#004d40,stroke-width:2px
+    style Step5 fill:#f44336,stroke:#b71c1c,stroke-width:2px
 ```
 
 ---
