@@ -137,23 +137,26 @@ install_dependencies() {
                 # 安装 EPEL 仓库
                 yum install -y -q epel-release
                 
-                # 安装 Software Collections 仓库
-                yum install -y -q centos-release-scl
+                # 安装 Remi 仓库（提供 Python 3.8+）
+                yum install -y -q https://rpms.remirepo.net/enterprise/remi-release-7.rpm
+                
+                # 启用 Remi 仓库
+                yum-config-manager --enable remi
                 
                 # 安装 Python 3.8
-                yum install -y -q rh-python38 rh-python38-python-pip rh-python38-python-devel
+                yum install -y -q python38 python38-pip python38-devel
                 
                 # 设置 Python 3.8 为默认 python3
                 # 创建符号链接
                 if [ ! -f /usr/local/bin/python3 ]; then
-                    ln -sf /opt/rh/rh-python38/root/usr/bin/python3 /usr/local/bin/python3
+                    ln -sf /usr/bin/python3.8 /usr/local/bin/python3
                 fi
                 if [ ! -f /usr/local/bin/pip3 ]; then
-                    ln -sf /opt/rh/rh-python38/root/usr/bin/pip3 /usr/local/bin/pip3
+                    ln -sf /usr/bin/pip3.8 /usr/local/bin/pip3
                 fi
                 
                 # 更新 PATH 环境变量
-                export PATH="/opt/rh/rh-python38/root/usr/bin:$PATH"
+                export PATH="/usr/local/bin:$PATH"
                 
                 print_info "Python 3.8 已安装"
             else
@@ -190,9 +193,11 @@ install_dependencies() {
             print_error ""
             print_error "对于 CentOS 7，请手动执行以下命令安装 Python 3.8+:"
             print_error "  yum install -y epel-release"
-            print_error "  yum install -y centos-release-scl"
-            print_error "  yum install -y rh-python38 rh-python38-python-pip rh-python38-python-devel"
-            print_error "  ln -sf /opt/rh/rh-python38/root/usr/bin/python3 /usr/local/bin/python3"
+            print_error "  yum install -y https://rpms.remirepo.net/enterprise/remi-release-7.rpm"
+            print_error "  yum-config-manager --enable remi"
+            print_error "  yum install -y python38 python38-pip python38-devel"
+            print_error "  ln -sf /usr/bin/python3.8 /usr/local/bin/python3"
+            print_error "  ln -sf /usr/bin/pip3.8 /usr/local/bin/pip3"
             print_error ""
             print_error "对于其他系统，请安装 Python 3.8+ 后重新运行此脚本"
             exit 1
