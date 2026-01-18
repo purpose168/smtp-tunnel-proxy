@@ -118,10 +118,10 @@ class BaseTunnel(ABC):
             reader = self.reader
             writer = self.writer
 
-            # 获取底层 socket
-            sock = writer.transport.get_extra_info('socket')
-            if not sock:
-                raise Exception("无法获取底层 socket")
+            # 获取 transport
+            transport = writer.transport
+            if not transport:
+                raise Exception("无法获取 transport")
 
             # 创建 SSLObject 和 MemoryBIO
             incoming_bio = ssl.MemoryBIO()
@@ -135,30 +135,30 @@ class BaseTunnel(ABC):
             )
 
             # 执行 SSL 握手
-            loop = asyncio.get_event_loop()
             while True:
                 try:
                     ssl_obj.do_handshake()
                     break
                 except ssl.SSLWantReadError:
-                    # 需要从 socket 读取数据
-                    data = await loop.sock_recv(sock, 4096)
+                    # 需要从 transport 读取数据
+                    data = await reader.read(4096)
                     if not data:
                         raise Exception("连接已关闭")
                     incoming_bio.write(data)
                 except ssl.SSLWantWriteError:
-                    # 需要向 socket 写入数据
+                    # 需要向 transport 写入数据
                     data = outgoing_bio.read(4096)
                     if data:
-                        await loop.sock_sendall(sock, data)
+                        writer.write(data)
+                        await writer.drain()
 
             # 创建自定义的 TLS 流
             class TLSStreamReader:
-                def __init__(self, ssl_obj, sock, incoming_bio, outgoing_bio, loop):
+                def __init__(self, ssl_obj, incoming_bio, outgoing_bio, writer, loop):
                     self.ssl_obj = ssl_obj
-                    self.sock = sock
                     self.incoming_bio = incoming_bio
                     self.outgoing_bio = outgoing_bio
+                    self.writer = writer
                     self.loop = loop
                     self.buffer = b''
 
@@ -168,20 +168,21 @@ class BaseTunnel(ABC):
                             data = self.ssl_obj.read(n)
                             if data:
                                 return data
-                            # 需要从 socket 读取更多数据
-                            sock_data = await self.loop.sock_recv(self.sock, 4096)
+                            # 需要从 transport 读取更多数据
+                            sock_data = await self.writer._reader.read(4096)
                             if not sock_data:
                                 return b''
                             self.incoming_bio.write(sock_data)
                         except ssl.SSLWantReadError:
-                            sock_data = await self.loop.sock_recv(self.sock, 4096)
+                            sock_data = await self.writer._reader.read(4096)
                             if not sock_data:
                                 return b''
                             self.incoming_bio.write(sock_data)
                         except ssl.SSLWantWriteError:
                             data = self.outgoing_bio.read(4096)
                             if data:
-                                await self.loop.sock_sendall(self.sock, data)
+                                self.writer.write(data)
+                                await self.writer.drain()
 
                 async def readline(self):
                     while True:
@@ -196,10 +197,10 @@ class BaseTunnel(ABC):
                         self.buffer += data
 
             class TLSStreamWriter:
-                def __init__(self, ssl_obj, sock, outgoing_bio, loop):
+                def __init__(self, ssl_obj, outgoing_bio, writer, loop):
                     self.ssl_obj = ssl_obj
-                    self.sock = sock
                     self.outgoing_bio = outgoing_bio
+                    self.writer = writer
                     self.loop = loop
 
                 def write(self, data):
@@ -210,13 +211,15 @@ class BaseTunnel(ABC):
                         try:
                             data = self.outgoing_bio.read(4096)
                             if data:
-                                await self.loop.sock_sendall(self.sock, data)
+                                self.writer.write(data)
+                                await self.writer.drain()
                             else:
                                 break
                         except ssl.SSLWantWriteError:
                             data = self.outgoing_bio.read(4096)
                             if data:
-                                await self.loop.sock_sendall(self.sock, data)
+                                self.writer.write(data)
+                                await self.writer.drain()
                             else:
                                 break
 
@@ -231,11 +234,11 @@ class BaseTunnel(ABC):
 
                 def get_extra_info(self, name, default=None):
                     if name == 'socket':
-                        return self.sock
+                        return self.writer.transport.get_extra_info('socket')
                     return default
 
-            new_reader = TLSStreamReader(ssl_obj, sock, incoming_bio, outgoing_bio, loop)
-            new_writer = TLSStreamWriter(ssl_obj, sock, outgoing_bio, loop)
+            new_reader = TLSStreamReader(ssl_obj, incoming_bio, outgoing_bio, writer, loop)
+            new_writer = TLSStreamWriter(ssl_obj, outgoing_bio, writer, loop)
 
             self.reader = new_reader
             self.writer = new_writer
