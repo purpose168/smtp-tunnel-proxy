@@ -14,28 +14,12 @@ import secrets   # 安全随机数生成库
 import zipfile   # ZIP 文件操作库
 import tempfile  # 临时文件/目录创建库
 import shutil    # 高级文件操作库
-import logging   # 日志记录库
-from datetime import datetime, timedelta, timezone  # 用于日期时间处理
-
-# 加密库导入
-from cryptography import x509                                   # 用于 X.509 证书操作
-from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID  # 用于证书对象标识符
-from cryptography.hazmat.primitives import hashes               # 用于哈希算法
-from cryptography.hazmat.primitives.asymmetric import rsa       # 用于 RSA 密钥生成
-from cryptography.hazmat.primitives import serialization        # 用于密钥和证书序列化
-from cryptography.hazmat.backends import default_backend        # 用于加密后端
+import pathlib   # 路径处理库
 
 # 将当前目录添加到导入路径，以便导入本地模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import load_users, save_users, load_config, UserConfig  # 导入通用函数和用户配置类
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger('smtp-tunnel-adduser')
+from config import load_users, save_users, load_config, UserConfig  # 导入通用函数和用户配置类
 
 
 def find_project_root() -> str:
@@ -47,7 +31,23 @@ def find_project_root() -> str:
 def find_required_files(base_dir: str) -> dict:
     """查找必需的文件，返回找到的文件路径字典。"""
     required_files = {
+        # 主入口文件
+        'client.py': 'client.py',
+        'common.py': 'common.py',
+        'requirements.txt': 'requirements.txt',
         'ca.crt': 'ca.crt',
+        # 客户端需要的模块
+        'protocol/__init__.py': 'protocol/__init__.py',
+        'protocol/core.py': 'protocol/core.py',
+        'protocol/client.py': 'protocol/client.py',
+        'tunnel/__init__.py': 'tunnel/__init__.py',
+        'tunnel/crypto.py': 'tunnel/crypto.py',
+        'tunnel/base.py': 'tunnel/base.py',
+        'tunnel/client.py': 'tunnel/client.py',
+        'config.py': 'config.py',
+        'logger.py': 'logger.py',
+        'connection.py': 'connection.py',
+        'socks5_server.py': 'socks5_server.py',
     }
     
     found_files = {}
@@ -90,141 +90,9 @@ client:
   socks_port: 1080                  # SOCKS5 代理端口
   socks_host: "127.0.0.1"          # SOCKS5 代理监听地址
 
-  # 用于服务器验证的客户端证书
-  client_cert: "{username}-client.crt"        # 客户端证书文件路径
-  client_key: "{username}-client.key"         # 客户端私钥文件路径
+  # 用于服务器验证的 CA 证书
+  ca_cert: "ca.crt"                 # CA 证书文件路径
 """
-
-
-def generate_user_certificate(
-    username: str,
-    output_dir: str,
-    key_size: int = 2048,
-    days_valid: int = 1095
-) -> tuple:
-    """
-    为用户生成客户端证书
-    
-    生成用户专属的客户端证书，用于 SMTP 隧道的 TLS 加密通信。
-    客户端证书用于客户端身份验证，包含客户端的公钥和私钥。
-    
-    Args:
-        username: 用户名
-        output_dir: 输出目录
-        key_size: RSA 密钥大小（位），默认 2048
-        days_valid: 证书有效期（天），默认 1095（3 年）
-    
-    Returns:
-        tuple: (client_cert_path, client_key_path)
-              客户端证书路径、客户端私钥路径
-    
-    Raises:
-        Exception: 证书生成失败
-    """
-    logger.info(f"开始为用户 '{username}' 生成客户端证书")
-    
-    try:
-        # ========== 生成客户端私钥 ==========
-        logger.debug(f"为用户 '{username}' 生成客户端私钥")
-        client_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=key_size,
-            backend=default_backend(),
-        )
-        
-        # 客户端证书主题
-        client_subject = x509.Name([
-            x509.NameAttribute(NameOID.COUNTRY_NAME, "CN"),
-            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Beijing"),
-            x509.NameAttribute(NameOID.LOCALITY_NAME, "Beijing"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SMTP Tunnel"),
-            x509.NameAttribute(NameOID.COMMON_NAME, username),
-        ])
-        
-        # 主题备用名称（SAN）
-        san = x509.SubjectAlternativeName([
-            x509.DNSName(username),
-            x509.DNSName(f"client.{username}"),
-            x509.DNSName("localhost"),
-        ])
-        
-        # 生成客户端证书（自签名）
-        # 注意：实际使用时，客户端应该使用服务器提供的 CA 证书
-        # 这里生成自签名证书用于测试目的
-        client_cert = (
-            x509.CertificateBuilder()
-            .subject_name(client_subject)
-            .issuer_name(client_subject)
-            .public_key(client_key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.now(timezone.utc))
-            .not_valid_after(datetime.now(timezone.utc) + timedelta(days=days_valid))
-            .add_extension(san, critical=False)
-            .add_extension(
-                x509.BasicConstraints(ca=False, path_length=None),
-                critical=True,
-            )
-            .add_extension(
-                x509.KeyUsage(
-                    digital_signature=True,
-                    key_encipherment=True,
-                    content_commitment=False,
-                    data_encipherment=False,
-                    key_agreement=False,
-                    key_cert_sign=False,
-                    crl_sign=False,
-                    encipher_only=False,
-                    decipher_only=False,
-                ),
-                critical=True,
-            )
-            .add_extension(
-                x509.ExtendedKeyUsage([
-                    ExtendedKeyUsageOID.SERVER_AUTH,
-                    ExtendedKeyUsageOID.CLIENT_AUTH,
-                ]),
-                critical=False,
-            )
-            .add_extension(
-                x509.SubjectKeyIdentifier.from_public_key(client_key.public_key()),
-                critical=False,
-            )
-            .sign(client_key, hashes.SHA256(), default_backend())
-        )
-        
-        logger.info(f"用户 '{username}' 的客户端证书生成完成")
-        
-        # ========== 保存文件 ==========
-        # 构建文件路径
-        client_key_path = os.path.join(output_dir, f'{username}-client.key')
-        client_cert_path = os.path.join(output_dir, f'{username}-client.crt')
-        
-        logger.debug(f"开始保存用户 '{username}' 的客户端证书文件")
-        
-        # 保存客户端私钥
-        client_key_pem = client_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-        with open(client_key_path, 'wb') as f:
-            f.write(client_key_pem)
-        os.chmod(client_key_path, 0o600)
-        logger.info(f"客户端私钥已保存: {client_key_path}")
-        
-        # 保存客户端证书
-        client_cert_pem = client_cert.public_bytes(serialization.Encoding.PEM)
-        with open(client_cert_path, 'wb') as f:
-            f.write(client_cert_pem)
-        os.chmod(client_cert_path, 0o644)
-        logger.info(f"客户端证书已保存: {client_cert_path}")
-        
-        logger.info(f"用户 '{username}' 的客户端证书生成完成")
-        return (client_cert_path, client_key_path)
-        
-    except Exception as e:
-        logger.error(f"为用户 '{username}' 生成客户端证书失败: {e}")
-        raise
 
 
 def create_client_package(
@@ -233,70 +101,358 @@ def create_client_package(
     server_host: str,               # 服务器主机名
     server_port: int,               # 服务器端口
     base_dir: str,                  # 基础目录路径
-    output_dir: str,                # 输出目录路径
-    key_size: int = 2048,           # RSA 密钥大小
-    days_valid: int = 1095,         # 证书有效期（天）
-    generate_certs: bool = True,       # 是否生成用户证书
-    cert_info: dict = None           # 证书信息（client_cert, client_key）
+    output_dir: str                 # 输出目录路径
 ) -> str:
     """
-    创建包含配置文件和证书的 ZIP 包。
-    
-    为每个用户生成专属的客户端证书，提供更好的安全隔离。
-    
+    创建包含客户端所需所有文件的 ZIP 包。
+
     返回:
         创建的 ZIP 文件路径
     """
-    logger.info(f"开始为用户 '{username}' 创建客户端包")
+    # 查找必需的文件
+    files = find_required_files(base_dir)
     
+    # 客户端文件列表（只包含客户端需要的模块）
+    client_files = [
+        # 主入口文件
+        'client.py', 'common.py',
+        # 客户端需要的模块
+        'protocol/__init__.py', 'protocol/core.py', 'protocol/client.py',
+        'tunnel/__init__.py', 'tunnel/crypto.py', 'tunnel/base.py', 'tunnel/client.py',
+        'config.py', 'logger.py', 'connection.py',
+        'socks5_server.py',
+        'requirements.txt'
+    ]
+    
+    # 检查 ca.crt 证书文件是否存在
+    has_ca_cert = files['ca.crt'] is not None
+
     # 创建临时目录用于打包
     with tempfile.TemporaryDirectory() as tmpdir:
         pkg_dir = os.path.join(tmpdir, username)  # 用户包目录
         os.makedirs(pkg_dir)                       # 创建目录
-        
-        # 生成用户专属证书（如果启用）
-        if generate_certs:
-            try:
-                logger.info(f"为用户 '{username}' 生成专属证书")
-                client_cert_path, client_key_path = generate_user_certificate(
-                    username=username,
-                    output_dir=pkg_dir,
-                    key_size=key_size,
-                    days_valid=days_valid
-                )
-                
-                # 将生成的证书复制到包目录
-                # 注意：generate_user_certificate 已经将证书保存到 pkg_dir
-                logger.info(f"用户 '{username}' 的证书已生成并添加到包中")
-                
-            except Exception as e:
-                logger.error(f"为用户 '{username}' 生成证书失败: {e}")
-                raise Exception(f"证书生成失败: {e}")
-        elif cert_info:
-            # 使用提供的证书信息
-            logger.info(f"使用提供的证书信息为用户 '{username}'")
-            client_cert_path = os.path.join(pkg_dir, f'{username}-client.crt')
-            client_key_path = os.path.join(pkg_dir, f'{username}-client.key')
-            
-            # 写入证书文件
-            with open(client_cert_path, 'wb') as f:
-                f.write(cert_info['client_cert'])
-            os.chmod(client_cert_path, 0o644)
-            logger.info(f"客户端证书已保存: {client_cert_path}")
-            
-            with open(client_key_path, 'wb') as f:
-                f.write(cert_info['client_key'])
-            os.chmod(client_key_path, 0o600)
-            logger.info(f"客户端私钥已保存: {client_key_path}")
-        
+
+        # 复制客户端文件
+        missing_files = []  # 记录缺失的文件
+        for filename in client_files:
+            if files[filename] and os.path.exists(files[filename]):
+                # 处理子目录结构
+                if '/' in filename:
+                    # 创建子目录
+                    subdir = os.path.dirname(filename)
+                    target_dir = os.path.join(pkg_dir, subdir)
+                    os.makedirs(target_dir, exist_ok=True)
+                    # 复制文件到子目录
+                    shutil.copy(files[filename], target_dir)
+                else:
+                    # 复制文件到包目录
+                    shutil.copy(files[filename], pkg_dir)
+            else:
+                missing_files.append(filename)
+
+        # 显示缺失文件警告（如果有）
+        if missing_files:
+            print(f"提示: 以下客户端文件未找到（服务器端通常不包含这些文件）:")
+            for filename in missing_files:
+                print(f"  - {filename}")
+            print("  这不影响服务器端功能。如需创建客户端包，请先下载客户端文件。")
+            print()
+
+        # 如果存在 CA 证书则复制
+        if has_ca_cert:
+            shutil.copy(files['ca.crt'], pkg_dir)       # 复制 CA 证书
+        else:
+            print("警告: ca.crt 未找到 - 客户端将无法验证服务器")
+
         # 生成客户端配置文件
         config_content = create_client_config(server_host, server_port, username, secret)
-        config_filename = f"{username}-config.yaml"
-        config_path = os.path.join(pkg_dir, config_filename)
+        config_path = os.path.join(pkg_dir, 'config.yaml')
         with open(config_path, 'w') as f:
             f.write(config_content)                   # 写入配置内容
-        
-        logger.info(f"配置文件已生成: {config_path}")
+
+        # 为用户创建 README 说明文件
+        readme_content = f"""# SMTP 隧道客户端 - {username}
+
+## 快速开始
+
+### 方法 1：使用启动脚本（推荐）
+
+Windows: 双击 start.bat
+Linux/Mac: 运行 ./start.sh
+
+启动脚本会自动：
+1. 创建 Python 虚拟环境（如果不存在）
+2. 激活虚拟环境
+3. 安装所需的依赖包
+4. 启动客户端
+
+### 方法 2：手动安装
+
+1. 创建虚拟环境:
+   python3 -m venv venv
+
+2. 激活虚拟环境:
+   Windows: venv\\Scripts\\activate
+   Linux/Mac: source venv/bin/activate
+
+3. 安装依赖:
+   pip install -r requirements.txt
+
+4. 运行客户端:
+   python client.py
+
+5. 配置浏览器/应用程序使用 SOCKS5 代理:
+   主机: 127.0.0.1
+   端口: 1080
+
+## 文件说明
+
+### 主程序文件
+- client.py      - 隧道客户端主程序
+- common.py      - 共享库文件（兼容层）
+
+### 核心模块
+- protocol/      - 二进制协议定义
+- tunnel/        - 隧道模块（包含客户端功能）
+- config.py      - 配置管理
+- logger.py      - 日志管理
+
+### 客户端模块
+- socks5_server.py   - SOCKS5 服务器
+- connection.py      - 连接管理
+
+### 配置文件
+- config.yaml    - 您的配置文件（已预配置）
+- ca.crt         - 用于验证的服务器证书
+- requirements.txt - Python 依赖列表
+
+## 虚拟环境
+
+本客户端使用 Python 虚拟环境来隔离依赖，避免与系统 Python 环境冲突。
+
+### 虚拟环境目录
+- Windows: venv\\
+- Linux/Mac: venv/
+
+### 手动管理虚拟环境
+
+创建虚拟环境:
+```bash
+python3 -m venv venv
+```
+
+激活虚拟环境:
+```bash
+# Windows
+venv\\Scripts\\activate
+
+# Linux/Mac
+source venv/bin/activate
+```
+
+退出虚拟环境:
+```bash
+deactivate
+```
+
+删除虚拟环境:
+```bash
+# Windows
+rmdir /s /q venv
+
+# Linux/Mac
+rm -rf venv
+```
+
+## 测试连接
+
+curl -x socks5h://127.0.0.1:1080 https://ifconfig.me
+
+## 简易启动
+
+Windows: 双击 start.bat
+Linux/Mac: 运行 ./start.sh
+"""
+        readme_path = os.path.join(pkg_dir, 'README.txt')
+        with open(readme_path, 'w') as f:
+            f.write(readme_content)                   # 写入 README 内容
+
+        # 创建 Windows 启动脚本（start.bat）
+        bat_content = f'''@echo off
+chcp 65001 >nul 2>&1
+title SMTP 隧道 - {username}
+
+echo.
+echo  ╔═══════════════════════════════════════════════════════════╗
+echo  ║   SMTP 隧道代理客户端                                      ║
+echo  ║   用户: {username:50}║
+echo  ╚═══════════════════════════════════════════════════════════╝
+echo.
+
+:: 检查 Python 是否安装
+where python >nul 2>&1
+if %errorlevel% neq 0 (
+    where python3 >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [错误] 未找到 Python！
+        echo.
+        echo 请从以下地址安装 Python 3.8+:
+        echo   https://www.python.org/downloads/
+        echo.
+        echo 安装时请确保勾选"Add Python to PATH"选项。
+        echo.
+        pause
+        exit /b 1
+    )
+    set PYTHON=python3
+) else (
+    set PYTHON=python
+)
+
+echo [信息] 找到 Python: %PYTHON%
+
+:: 检查虚拟环境是否存在
+if not exist "venv" (
+    echo [信息] 正在创建 Python 虚拟环境...
+    %PYTHON% -m venv venv
+    if %errorlevel% neq 0 (
+        echo [错误] 虚拟环境创建失败
+        pause
+        exit /b 1
+    )
+    echo [信息] 虚拟环境创建完成
+) else (
+    echo [信息] 使用现有虚拟环境
+)
+
+:: 激活虚拟环境
+call venv\\Scripts\\activate.bat
+
+:: 检查/安装依赖
+echo [信息] 检查依赖项...
+python -c "import yaml, cryptography" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [信息] 正在安装依赖项...
+    python -m pip install -r requirements.txt --quiet
+    if %errorlevel% neq 0 (
+        echo [错误] 依赖项安装失败
+        pause
+        exit /b 1
+    )
+    echo [信息] 依赖项安装完成
+)
+
+echo.
+echo [信息] 正在启动 SMTP 隧道...
+echo [信息] SOCKS5 代理将在 127.0.0.1:1080 上可用
+echo.
+echo 按 Ctrl+C 停止
+echo ─────────────────────────────────────────────────────────────
+echo.
+
+python client.py
+
+echo.
+echo 连接已关闭。
+echo 按任意键退出...
+pause >nul
+'''
+        bat_path = os.path.join(pkg_dir, 'start.bat')
+        with open(bat_path, 'w', newline='\r\n') as f:
+            f.write(bat_content)                       # 写入 Windows 批处理脚本
+
+        # 创建 Linux/Mac 启动脚本（start.sh）
+        sh_content = f'''#!/bin/bash
+#
+# SMTP 隧道客户端启动器
+# 用户: {username}
+#
+
+# 颜色定义
+RED='\\033[0;31m'      # 红色
+GREEN='\\033[0;32m'    # 绿色
+YELLOW='\\033[1;33m'   # 黄色
+BLUE='\\033[0;34m'     # 蓝色
+CYAN='\\033[0;36m'     # 青色
+NC='\\033[0m'          # 无颜色
+
+clear
+echo ""
+echo -e "${{CYAN}}"
+echo "  ╔═══════════════════════════════════════════════════════════╗"
+echo "  ║   SMTP 隧道代理客户端                                      ║"
+echo "  ║   用户: {username:50}║"
+echo "  ╚═══════════════════════════════════════════════════════════╝"
+echo -e "${{NC}}"
+echo ""
+
+# 查找 Python
+if command -v python3 &> /dev/null; then
+    PYTHON=python3
+elif command -v python &> /dev/null; then
+    PYTHON=python
+else
+    echo -e "${{RED}}[错误]${{NC}} 未找到 Python！"
+    echo ""
+    echo "请安装 Python 3.8+:"
+    echo "  Ubuntu/Debian: sudo apt install python3 python3-pip"
+    echo "  macOS: brew install python3"
+    echo "  或从以下地址下载: https://www.python.org/downloads/"
+    echo ""
+    exit 1
+fi
+
+echo -e "${{GREEN}}[信息]${{NC}} 找到 Python: $PYTHON"
+
+# 检查虚拟环境是否存在
+if [ ! -d "venv" ]; then
+    echo -e "${{YELLOW}}[信息]${{NC}} 正在创建 Python 虚拟环境..."
+    $PYTHON -m venv venv
+    if [ $? -ne 0 ]; then
+        echo -e "${{RED}}[错误]${{NC}} 虚拟环境创建失败"
+        echo "请确保已安装 python3-venv:"
+        echo "  Ubuntu/Debian: sudo apt install python3-venv"
+        echo "  CentOS/RHEL: sudo yum install python3-virtualenv"
+        exit 1
+    fi
+    echo -e "${{GREEN}}[信息]${{NC}} 虚拟环境创建完成"
+else
+    echo -e "${{GREEN}}[信息]${{NC}} 使用现有虚拟环境"
+fi
+
+# 激活虚拟环境
+source venv/bin/activate
+
+# 检查/安装依赖
+echo -e "${{GREEN}}[信息]${{NC}} 检查依赖项..."
+if ! python -c "import yaml, cryptography" &> /dev/null; then
+    echo -e "${{YELLOW}}[信息]${{NC}} 正在安装依赖项..."
+    python -m pip install -r requirements.txt --quiet
+    if [ $? -ne 0 ]; then
+        echo -e "${{RED}}[错误]${{NC}} 依赖项安装失败"
+        echo "请尝试运行: python -m pip install -r requirements.txt"
+        exit 1
+    fi
+    echo -e "${{GREEN}}[信息]${{NC}} 依赖项安装完成"
+fi
+
+echo ""
+echo -e "${{GREEN}}[信息]${{NC}} 正在启动 SMTP 隧道..."
+echo -e "${{GREEN}}[信息]${{NC}} SOCKS5 代理将在 127.0.0.1:1080 上可用"
+echo ""
+echo -e "按 ${{YELLOW}}Ctrl+C${{NC}} 停止"
+echo "─────────────────────────────────────────────────────────────"
+echo ""
+
+python client.py
+
+echo ""
+echo -e "${{YELLOW}}连接已关闭。${{NC}}"
+'''
+        sh_path = os.path.join(pkg_dir, 'start.sh')
+        with open(sh_path, 'w') as f:
+            f.write(sh_content)                         # 写入 Shell 脚本
+        os.chmod(sh_path, 0o755)                      # 设置可执行权限
 
         # 创建 ZIP 文件
         zip_filename = f"{username}.zip"
@@ -332,9 +488,6 @@ def main():
     parser.add_argument('--config', '-c', default='/opt/smtp-tunnel/config/config.yaml', help='服务器配置文件（默认: /opt/smtp-tunnel/config/config.yaml）')
     parser.add_argument('--output-dir', '-o', default='.', help='ZIP 文件输出目录（默认: 当前目录）')
     parser.add_argument('--no-package', action='store_true', help='不生成客户端 ZIP 包')
-    parser.add_argument('--no-certs', action='store_true', help='不为用户生成专属证书（使用全局 CA 证书）')
-    parser.add_argument('--key-size', type=int, default=2048, help='RSA 密钥大小（位）（默认: 2048）')
-    parser.add_argument('--cert-days', type=int, default=1095, help='证书有效期（天）（默认: 1095 = 3 年）')
 
     args = parser.parse_args()
 
@@ -356,7 +509,7 @@ def main():
     # 如果未提供密钥则生成
     secret = args.secret or generate_secret()
 
-    # 创建用户配置（在内存中）
+    # 创建用户配置
     user = UserConfig(
         username=args.username,
         secret=secret,
@@ -364,147 +517,52 @@ def main():
         logging=not args.no_logging
     )
 
-    # ========== 原子化执行开始 ==========
-    # 先在内存中完成所有操作，确保数据一致性
-    logger.info(f"开始为用户 '{args.username}' 执行原子化创建流程")
-    
-    try:
-        # 步骤 1: 生成用户专属证书（如果启用）
-        cert_info = None
-        if not args.no_certs:
-            logger.info(f"步骤 1/3: 为用户 '{args.username}' 生成专属证书")
-            
-            # 创建临时目录用于证书生成
-            cert_output_dir = tempfile.mkdtemp(prefix=f'{args.username}-certs-')
-            
-            try:
-                client_cert_path, client_key_path = generate_user_certificate(
-                    username=args.username,
-                    output_dir=cert_output_dir,
-                    key_size=args.key_size,
-                    days_valid=args.cert_days
-                )
-                
-                # 读取证书内容到内存
-                with open(client_cert_path, 'rb') as f:
-                    client_cert_content = f.read()
-                with open(client_key_path, 'rb') as f:
-                    client_key_content = f.read()
-                
-                cert_info = {
-                    'client_cert': client_cert_content,
-                    'client_key': client_key_content
-                }
-                
-                logger.info(f"步骤 1/3 完成: 用户 '{args.username}' 的证书已生成")
-                
-            except Exception as e:
-                logger.error(f"步骤 1/3 失败: 证书生成失败 - {e}")
-                raise Exception(f"证书生成失败: {e}")
-            finally:
-                # 清理临时目录
-                shutil.rmtree(cert_output_dir, ignore_errors=True)
-        else:
-            logger.info(f"步骤 1/3: 跳过证书生成（使用 --no-certs 参数）")
-        
-        # 步骤 2: 保存用户到文件系统
-        logger.info(f"步骤 2/3: 保存用户 '{args.username}' 到文件系统")
-        users[args.username] = user
-        save_users(users_file, users)
-        logger.info(f"步骤 2/3 完成: 用户 '{args.username}' 已保存到 {users_file}")
-        
-        # 步骤 3: 生成客户端包（如果启用）
-        if not args.no_package:
-            logger.info(f"步骤 3/3: 为用户 '{args.username}' 生成客户端包")
-            
-            # 加载服务器配置以获取主机名和端口
-            config_file = args.config
-            if not os.path.isabs(config_file):
-                config_file = os.path.join(base_dir, config_file)  # 转换为绝对路径
+    # 添加用户
+    users[args.username] = user
 
-            try:
-                config_data = load_config(config_file)            # 加载配置
-                server_conf = config_data.get('server', {})
-                server_host = server_conf.get('hostname', 'localhost')
-                server_port = server_conf.get('port', 587)
-            except FileNotFoundError:
-                logger.warning(f"配置文件 {config_file} 未找到，使用默认值")
-                server_host = 'localhost'
-                server_port = 587
+    # 保存用户文件
+    save_users(users_file, users)
+    print(f"用户 '{args.username}' 已添加到 {users_file}")
 
-            output_dir = args.output_dir
-            if not os.path.isabs(output_dir):
-                output_dir = os.path.join(os.getcwd(), output_dir)  # 转换为绝对路径
+    # 生成客户端包
+    if not args.no_package:
+        # 加载服务器配置以获取主机名和端口
+        config_file = args.config
+        if not os.path.isabs(config_file):
+            config_file = os.path.join(base_dir, config_file)  # 转换为绝对路径
 
-            # 创建临时目录用于打包
-            pkg_output_dir = tempfile.mkdtemp(prefix=f'{args.username}-pkg-')
-            
-            try:
-                # 生成客户端包（包含用户证书）
-                zip_path = create_client_package(
-                    username=args.username,
-                    secret=secret,
-                    server_host=server_host,
-                    server_port=server_port,
-                    base_dir=pkg_output_dir,
-                    output_dir=output_dir,
-                    key_size=args.key_size,
-                    days_valid=args.cert_days,
-                    generate_certs=not args.no_certs,
-                    cert_info=cert_info
-                )
-                
-                logger.info(f"步骤 3/3 完成: 客户端包已创建 {zip_path}")
-                
-            except Exception as e:
-                logger.error(f"步骤 3/3 失败: 客户端包生成失败 - {e}")
-                raise Exception(f"客户端包生成失败: {e}")
-            finally:
-                # 清理临时目录
-                shutil.rmtree(pkg_output_dir, ignore_errors=True)
-        else:
-            logger.info(f"步骤 3/3: 跳过客户端包生成（使用 --no-package 参数）")
-        
-        # ========== 原子化执行完成 ==========
-        logger.info(f"用户 '{args.username}' 创建成功（原子化执行完成）")
-        
-        # 打印成功信息
-        print(f"用户 '{args.username}' 已添加到 {users_file}")
+        try:
+            config_data = load_config(config_file)            # 加载配置
+            server_conf = config_data.get('server', {})
+            server_host = server_conf.get('hostname', 'localhost')
+            server_port = server_conf.get('port', 587)
+        except FileNotFoundError:
+            print(f"警告: 配置文件 {config_file} 未找到，使用默认值")
+            server_host = 'localhost'
+            server_port = 587
+
+        output_dir = args.output_dir
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.join(os.getcwd(), output_dir)  # 转换为绝对路径
+
+        zip_path = create_client_package(
+            username=args.username,
+            secret=secret,
+            server_host=server_host,
+            server_port=server_port,
+            base_dir=base_dir,
+            output_dir=output_dir
+        )
+
+        print(f"客户端包已创建: {zip_path}")
         print()
-        
-        if not args.no_package:
-            print(f"客户端包已创建: {zip_path}")
-            print()
-            print("将此 ZIP 文件发送给用户。包中包含:")
-            print(f"  - {args.username}-config.yaml (配置文件)")
-            if not args.no_certs:
-                print(f"  - {args.username}-client.crt (客户端证书)")
-                print(f"  - {args.username}-client.key (客户端私钥)")
-            else:
-                print("  - ca.crt (全局 CA 证书)")
-            print()
-            print("用户需要:")
-            print("  1. 解压 ZIP 文件")
-            print("  2. 下载客户端程序")
-            print("  3. 使用配置文件和证书运行客户端")
-        
-        return 0
-        
-    except Exception as e:
-        # ========== 原子化执行失败 ==========
-        logger.error(f"用户 '{args.username}' 创建失败（原子化执行回滚）: {e}")
-        
-        # 回滚：从用户文件中移除用户
-        if args.username in users:
-            del users[args.username]
-            try:
-                save_users(users_file, users)
-                logger.info(f"已回滚：从 {users_file} 中移除用户 '{args.username}'")
-            except Exception as rollback_error:
-                logger.error(f"回滚失败: {rollback_error}")
-        
-        print(f"错误: 用户 '{args.username}' 创建失败: {e}")
-        return 1
+        print("将此 ZIP 文件发送给用户。他们只需要:")
+        print("  1. 解压 ZIP 文件")
+        print("  2. pip install -r requirements.txt")
+        print("  3. python client.py")
+
+    return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())
