@@ -138,26 +138,58 @@ install_dependencies() {
                 DISABLE_SCL="--disablerepo=centos-sclo-rh,centos-sclo-scloful"
                 
                 # 安装 EPEL 仓库
-                yum install -y -q $DISABLE_SCL epel-release
+                print_info "正在安装 EPEL 仓库..."
+                yum install -y $DISABLE_SCL epel-release
                 
                 # 安装 yum-utils（包含 yum-config-manager）
-                yum install -y -q $DISABLE_SCL yum-utils
+                print_info "正在安装 yum-utils..."
+                yum install -y $DISABLE_SCL yum-utils
                 
                 # 禁用旧的 SCL 仓库（如果存在）
+                print_info "正在禁用旧的 SCL 仓库..."
                 yum-config-manager --disable centos-sclo-rh 2>/dev/null || true
                 yum-config-manager --disable centos-sclo-scloful 2>/dev/null || true
                 
                 # 安装 Remi 仓库（提供 Python 3.8+）
-                yum install -y -q $DISABLE_SCL https://rpms.remirepo.net/enterprise/remi-release-7.rpm
+                print_info "正在安装 Remi 仓库..."
+                if ! yum install -y $DISABLE_SCL https://rpms.remirepo.net/enterprise/remi-release-7.rpm; then
+                    print_error "Remi 仓库安装失败"
+                    print_error "请检查网络连接或手动安装 Remi 仓库"
+                    exit 1
+                fi
                 
                 # 启用 Remi 仓库
-                yum-config-manager --enable remi
+                print_info "正在启用 Remi 仓库..."
+                if ! yum-config-manager --enable remi; then
+                    print_error "Remi 仓库启用失败"
+                    exit 1
+                fi
                 
                 # 安装 Python 3.8
-                yum install -y -q $DISABLE_SCL python38 python38-pip python38-devel
+                print_info "正在安装 Python 3.8..."
+                if ! yum install -y $DISABLE_SCL python38 python38-pip python38-devel; then
+                    print_error "Python 3.8 安装失败"
+                    print_error ""
+                    print_error "可能的原因："
+                    print_error "  1. Remi 仓库未正确启用"
+                    print_error "  2. Python 3.8 包在仓库中不可用"
+                    print_error "  3. 网络连接问题"
+                    print_error ""
+                    print_error "请检查以下命令的输出："
+                    print_error "  yum repolist enabled"
+                    print_error "  yum search python38"
+                    exit 1
+                fi
+                
+                # 验证 Python 3.8 是否安装成功
+                if [ ! -f /usr/bin/python3.8 ]; then
+                    print_error "Python 3.8 安装失败：未找到 /usr/bin/python3.8"
+                    exit 1
+                fi
                 
                 # 设置 Python 3.8 为默认 python3
                 # 创建符号链接
+                print_info "正在配置 Python 3.8 为默认版本..."
                 if [ ! -f /usr/local/bin/python3 ]; then
                     ln -sf /usr/bin/python3.8 /usr/local/bin/python3
                 fi
