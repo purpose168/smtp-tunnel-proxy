@@ -154,12 +154,13 @@ class BaseTunnel(ABC):
 
             # 创建自定义的 TLS 流
             class TLSStreamReader:
-                def __init__(self, ssl_obj, incoming_bio, outgoing_bio, writer, loop):
+                def __init__(self, ssl_obj, incoming_bio, outgoing_bio, writer, loop, original_reader):
                     self.ssl_obj = ssl_obj
                     self.incoming_bio = incoming_bio
                     self.outgoing_bio = outgoing_bio
                     self.writer = writer
                     self.loop = loop
+                    self.original_reader = original_reader
                     self.buffer = b''
 
                 async def read(self, n=-1):
@@ -169,12 +170,12 @@ class BaseTunnel(ABC):
                             if data:
                                 return data
                             # 需要从 transport 读取更多数据
-                            sock_data = await self.writer._reader.read(4096)
+                            sock_data = await self.original_reader.read(4096)
                             if not sock_data:
                                 return b''
                             self.incoming_bio.write(sock_data)
                         except ssl.SSLWantReadError:
-                            sock_data = await self.writer._reader.read(4096)
+                            sock_data = await self.original_reader.read(4096)
                             if not sock_data:
                                 return b''
                             self.incoming_bio.write(sock_data)
@@ -237,7 +238,7 @@ class BaseTunnel(ABC):
                         return self.writer.transport.get_extra_info('socket')
                     return default
 
-            new_reader = TLSStreamReader(ssl_obj, incoming_bio, outgoing_bio, writer, loop)
+            new_reader = TLSStreamReader(ssl_obj, incoming_bio, outgoing_bio, writer, loop, reader)
             new_writer = TLSStreamWriter(ssl_obj, outgoing_bio, writer, loop)
 
             self.reader = new_reader
