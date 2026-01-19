@@ -259,7 +259,7 @@ graph LR
         B --> C[长度<br/>Length<br/>2 字节]
         C --> D[长度<br/>Length<br/>2 字节]
         D --> E[负载<br/>Payload<br/>可变]
-        E --> F[负载<br/>Payload<br/>(继续)]
+        E --> F[负载<br/>Payload<br/>继续]
     end
 
     G[类型说明<br/>0x01 = DATA - 隧道数据<br/>0x02 = CONNECT - 打开新通道<br/>0x03 = CONNECT_OK - 连接成功<br/>0x04 = CONNECT_FAIL - 连接失败<br/>0x05 = CLOSE - 关闭通道]
