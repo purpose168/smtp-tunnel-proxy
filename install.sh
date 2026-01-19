@@ -117,35 +117,48 @@ install_dependencies() {
 check_conda() {
     print_step "正在检查 Conda 安装状态..."
 
-    # 检查是否已安装 Conda (通过检测 conda 命令)
-    if command -v conda &> /dev/null; then
-        # 动态获取 Conda 的安装目录
-        local conda_path=$(which conda)
-        CONDA_INSTALL_DIR=$(dirname "$(dirname "$conda_path")")
-        print_info "Conda 已安装: $(conda --version)"
+    # 方法 1: 检查 conda 是否为已初始化的 shell 函数
+    if declare -f conda > /dev/null 2>&1; then
+        # conda 是已初始化的函数,尝试获取安装目录
+        local conda_path=$(type -P conda 2>/dev/null || echo "")
+        if [ -n "$conda_path" ]; then
+            CONDA_INSTALL_DIR=$(dirname "$conda_path")
+            CONDA_INSTALL_DIR=$(dirname "$CONDA_INSTALL_DIR")
+            print_info "Conda 已安装 (shell 函数): $(conda --version 2>/dev/null || echo 'unknown')"
+            print_info "Conda 安装目录: $CONDA_INSTALL_DIR"
+            return 0
+        fi
+    fi
+
+    # 方法 2: 直接查找 conda 可执行文件
+    local conda_path=""
+    for path in "/home/pps/anaconda3/bin/conda" \
+                "$HOME/anaconda3/bin/conda" \
+                "$HOME/miniconda3/bin/conda" \
+                "/opt/anaconda3/bin/conda" \
+                "/opt/miniconda3/bin/conda" \
+                "/usr/local/anaconda3/bin/conda" \
+                "/usr/local/miniconda3/bin/conda"; do
+        if [ -f "$path" ]; then
+            conda_path="$path"
+            break
+        fi
+    done
+
+    # 如果没找到,尝试 which 命令
+    if [ -z "$conda_path" ] && command -v conda > /dev/null 2>&1; then
+        conda_path=$(which conda 2>/dev/null)
+    fi
+
+    if [ -n "$conda_path" ] && [ -f "$conda_path" ]; then
+        CONDA_INSTALL_DIR=$(dirname "$conda_path")
+        CONDA_INSTALL_DIR=$(dirname "$CONDA_INSTALL_DIR")
+        export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
+        source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+        print_info "Conda 已安装: $(conda --version 2>/dev/null || echo 'unknown')"
         print_info "Conda 安装目录: $CONDA_INSTALL_DIR"
         return 0
     fi
-
-    # 搜索常见的 Conda 安装位置
-    local conda_locations=(
-        "$HOME/anaconda3"
-        "$HOME/miniconda3"
-        "/opt/anaconda3"
-        "/opt/miniconda3"
-        "/usr/local/anaconda3"
-        "/usr/local/miniconda3"
-    )
-
-    for location in "${conda_locations[@]}"; do
-        if [ -f "$location/bin/conda" ]; then
-            CONDA_INSTALL_DIR="$location"
-            export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
-            source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
-            print_info "检测到 Conda 安装于: $CONDA_INSTALL_DIR"
-            return 0
-        fi
-    done
 
     print_warn "未检测到 Conda 安装"
     return 1
@@ -197,35 +210,49 @@ install_conda() {
 create_conda_env() {
     print_step "正在创建 Conda 虚拟环境: $CONDA_ENV_NAME (Python 3.12)..."
 
+    # 重新检查并设置 CONDA_INSTALL_DIR (确保使用正确的值)
+    check_conda 2>/dev/null
+
     # 确保 Conda 命令可用
-    if ! command -v conda &> /dev/null; then
-        if [ -f "$CONDA_INSTALL_DIR/bin/conda" ]; then
-            export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
-            source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
-        else
-            print_error "Conda 命令不可用,请先安装 Conda"
-            return 1
-        fi
+    if ! command -v conda > /dev/null 2>&1 && ! declare -f conda > /dev/null 2>&1; then
+        print_error "Conda 命令不可用,请先安装 Conda"
+        return 1
     fi
 
-    # 检查环境是否已存在
-    if conda env list | grep -q "^$CONDA_ENV_NAME "; then
+    # 初始化 conda shell 集成 (如果需要)
+    if [ -f "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" ]; then
+        source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+    fi
+
+    # 验证环境目录 (使用 conda env list 命令的输出)
+    local env_exists=false
+    if conda env list 2>/dev/null | grep -q "^$CONDA_ENV_NAME "; then
+        env_exists=true
+    elif [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
+        env_exists=true
+    fi
+
+    if [ "$env_exists" = true ]; then
         print_info "环境 '$CONDA_ENV_NAME' 已存在"
         return 0
     fi
 
     # 创建新环境
     print_info "正在创建环境,这可能需要几分钟..."
-    if conda create -n "$CONDA_ENV_NAME" python=3.12 -y 2>&1 | grep -v "^#" | grep -v "^$" | while read line; do
-        # 显示创建进度
-        if echo "$line" | grep -qE "(Solving|Fetching|Linking|done)"; then
-            print_info "  $line"
-        fi
-    done; then
+    local create_output
+    if create_output=$(conda create -n "$CONDA_ENV_NAME" python=3.12 -y 2>&1); then
         print_info "环境 '$CONDA_ENV_NAME' 创建成功"
-        return 0
+        # 验证环境确实被创建
+        if [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
+            print_info "环境目录: $CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME"
+            return 0
+        else
+            print_warn "环境创建命令成功,但目录未找到"
+            return 1
+        fi
     else
         print_error "环境 '$CONDA_ENV_NAME' 创建失败"
+        echo "$create_output" | head -n 5
         return 1
     fi
 }
@@ -234,41 +261,53 @@ create_conda_env() {
 activate_conda_env() {
     print_step "正在激活 Conda 虚拟环境: $CONDA_ENV_NAME..."
 
-    # 确保 Conda 命令可用
-    if ! command -v conda &> /dev/null; then
-        if [ -f "$CONDA_INSTALL_DIR/bin/conda" ]; then
-            export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
-            source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
-        else
-            print_error "无法找到 Conda 安装"
-            return 1
-        fi
-    fi
+    # 重新检查并设置 CONDA_INSTALL_DIR (确保使用正确的值)
+    check_conda 2>/dev/null
 
-    # 检查环境是否存在 (使用更可靠的目录检查方式)
-    local conda_env_dir="$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME"
-    if [ ! -d "$conda_env_dir" ]; then
-        print_error "环境 '$CONDA_ENV_NAME' 不存在,请先创建"
+    # 确保 Conda 命令可用
+    if ! command -v conda > /dev/null 2>&1 && ! declare -f conda > /dev/null 2>&1; then
+        print_error "无法找到 Conda 安装"
         return 1
     fi
 
-    # 激活环境 (在当前 shell 中生效)
-    eval "$(conda shell.bash hook)"
-    conda activate "$CONDA_ENV_NAME"
+    # 初始化 conda shell 集成 (如果需要)
+    if [ -f "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" ]; then
+        source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+    fi
 
-    # 验证 Python 版本
-    if command -v python &> /dev/null; then
-        local py_version=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+    # 检查环境是否存在 (使用 conda env list 命令验证)
+    local env_exists=false
+    if conda env list 2>/dev/null | grep -q "^$CONDA_ENV_NAME "; then
+        env_exists=true
+    elif [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
+        env_exists=true
+    fi
+
+    if [ "$env_exists" = false ]; then
+        print_error "环境 '$CONDA_ENV_NAME' 不存在,请先创建"
+        print_info "可用环境: $(conda env list 2>/dev/null | grep -v '^#' | grep -v '^$' | awk '{print $1}' | tr '\n' ', ')"
+        return 1
+    fi
+
+    # 激活环境 (使用 __conda_exe 直接调用,避免依赖 shell 函数)
+    local conda_activate_cmd="$CONDA_INSTALL_DIR/bin/conda activate $CONDA_ENV_NAME 2>/dev/null"
+    eval "$($CONDA_INSTALL_DIR/bin/conda shell.bash hook 2>/dev/null)"
+    conda activate "$CONDA_ENV_NAME" 2>/dev/null || source "$CONDA_INSTALL_DIR/bin/activate" "$CONDA_ENV_NAME" 2>/dev/null || true
+
+    # 验证 Python 版本 (使用 Conda 环境的 Python)
+    local python_path="$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME/bin/python"
+    if [ -f "$python_path" ]; then
+        local py_version=$("$python_path" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
         if [ "$py_version" = "3.12" ]; then
             print_info "已激活 Python $py_version 环境"
-            print_info "Python 路径: $(which python)"
+            print_info "Python 路径: $python_path"
             return 0
         else
             print_warn "Python 版本不是 3.12: $py_version"
             return 1
         fi
     else
-        print_error "无法找到 Python 解释器"
+        print_error "无法找到 Python 解释器: $python_path"
         return 1
     fi
 }
