@@ -700,6 +700,11 @@ class ServerConfig:
     """服务端配置"""
     host: str = '0.0.0.0'  # 监听地址
     port: int = 25  # 监听端口
+    hostname: str = 'mail.example.com'  # 服务器主机名
+    cert_file: str = 'server.crt'  # 证书文件路径
+    key_file: str = 'server.key'  # 私钥文件路径
+    users_file: str = 'users.yaml'  # 用户文件路径
+    log_users: bool = True  # 是否记录用户日志
     secret: str = ''  # 密钥
     users: Dict[str, UserConfig] = None  # 用户字典
     stealth_enabled: bool = False  # 是否启用隐蔽模式
