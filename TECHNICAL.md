@@ -62,7 +62,7 @@ sequenceDiagram
         Note over DPI,Client: DPI 可以看到这部分
         Server->>Client: 220 mail.example.com ESMTP Postfix (Ubuntu)
         Client->>Server: EHLO client.local
-        Server->>Client: 250-mail.example.com<br/>250-STARTTLS<br/>250-AUTH PLAIN LOGIN<br/>250 8BITMIME
+        Server->>Client: 250-mail.example.com 250-STARTTLS 250-AUTH PLAIN LOGIN 250 8BITMIME
         Client->>Server: STARTTLS
         Server->>Client: 220 2.0.0 Ready to start TLS
         Note over DPI: DPI 分析: "这是一个正常的邮件服务器连接"
@@ -115,7 +115,7 @@ sequenceDiagram
     rect rgb(224, 255, 224)
         Note over DPI,Client: DPI 无法看到这部分<br/>(使用 TLS 加密)
         Client->>Server: EHLO client.local
-        Server->>Client: 250-mail.example.com<br/>250-AUTH PLAIN LOGIN<br/>250 8BITMIME
+        Server->>Client: 250-mail.example.com 250-AUTH PLAIN LOGIN 250 8BITMIME
         Client->>Server: AUTH PLAIN &lt;token&gt;
         Server->>Client: 235 2.7.0 Authentication successful
         Client->>Server: BINARY
