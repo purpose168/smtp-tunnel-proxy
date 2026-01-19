@@ -159,23 +159,23 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    subgraph Handshake["握手阶段 仅一次"]
+    subgraph Handshake["HANDSHAKE PHASE One time only"]
         A[EHLO → STARTTLS → TLS → EHLO → AUTH → BINARY]
-        B["时间: ~200-500ms 取决于网络延迟"]
+        B["Time: ~200-500ms network latency dependent"]
     end
 
-    subgraph Streaming["流式传输阶段 会话的其余部分"]
-        C[帧格式]
+    subgraph Streaming["STREAMING PHASE Rest of session"]
+        C[Frame Format]
         D[┌─────────┬────────────┬────────────┬─────────────┐]
-        E[│  类型   │ 通道 ID     │   长度     │   负载       │]
-        F[│ 1 字节  │  2 字节     │  2 字节    │  N 字节      │]
+        E[│  Type   │ Channel ID │   Length   │   Payload   │]
+        F[│ 1 byte  │  2 bytes   │  2 bytes   │  N bytes    │]
         G[└─────────┴────────────┴────────────┴─────────────┘]
-        H[特点]
-        I[• 全双工 - 同时发送和接收]
-        J[• 无需等待响应]
-        K["• 每帧 5 字节开销 对比 SMTP 的数百字节"]
-        L[• 原始二进制 - 无 base64 编码]
-        M[• 仅受网络带宽限制的速度]
+        H[Features]
+        I["• Full duplex - send and receive simultaneously"]
+        J["• No waiting for responses"]
+        K["• 5 bytes overhead per frame vs hundreds for SMTP"]
+        L["• Raw binary - no base64 encoding"]
+        M["• Speed limited only by network bandwidth"]
     end
 
     Handshake --> Streaming
