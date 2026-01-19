@@ -1,59 +1,23 @@
 [Unit]
-Description=SMTP 隧道代理服务器
-Documentation=https://github.com/purpose168/smtp-tunnel-proxy
+Description=SMTP Tunnel Server
+Documentation=https://github.com/user/smtp-tunnel
 After=network.target
-RequiresMountsFor=/opt/smtp-tunnel
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/smtp-tunnel
-
-# 优先使用虚拟环境中的 Python，备用使用系统 Python
-ExecStart=/opt/smtp-tunnel/venv/bin/python /opt/smtp-tunnel/server.py -c /opt/smtp-tunnel/config/config.yaml
-
+ExecStart=/usr/bin/python3 /opt/smtp-tunnel/server.py -c /etc/smtp-tunnel/config.yaml
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# Python 环境变量
-Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=VIRTUAL_ENV=/opt/smtp-tunnel/venv
-Environment=PATH=/opt/smtp-tunnel/venv/bin:/usr/local/bin:/usr/bin:/bin
-
-# 资源限制
-LimitNOFILE=65536
-LimitNPROC=4096
-
-# 安全加固配置
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-RemoveIPC=true
-SystemCallFilter=@system-service
-SystemCallErrorNumber=EPERM
-
-# 允许写入的路径
-ReadWritePaths=/opt/smtp-tunnel
-
-# 日志轮转配置
-# 日志文件将在达到大小时自动轮转
-# 使用logrotate进行日志管理
-# 配置文件位于: /opt/smtp-tunnel/config/logrotate.conf
-
-# 私有临时目录
-PrivateTmp=true
-
-# 网络绑定能力
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+# Security hardening (optional)
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=true
+# ReadWritePaths=/etc/smtp-tunnel
 
 [Install]
 WantedBy=multi-user.target

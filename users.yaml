@@ -1,5 +1,22 @@
+# SMTP Tunnel - Users Configuration
+#
+# Each user has:
+#   - secret: Authentication secret (required)
+#   - whitelist: List of allowed IP addresses/CIDR (optional)
+#   - logging: Enable logging for this user (optional, default: true)
+#
+# Use smtp-tunnel-adduser to add new users
+# Use smtp-tunnel-deluser to remove users
+# Use smtp-tunnel-listusers to list all users
+
 users:
-  testuser:
-    logging: true
-    secret: ir9kGZelsUeUC92KszPRECA3vg40jmlauMR4OInmEkM
-    whitelist: []
+  # Example user (uncomment and modify):
+  # alice:
+  #   secret: "generate-with-adduser-script"
+  #   whitelist:
+  #     - "192.168.1.100"
+  #     - "10.0.0.0/8"
+  #   logging: true
+  #
+  # Simple format (secret only):
+  # bob: "bobs-secret-here"

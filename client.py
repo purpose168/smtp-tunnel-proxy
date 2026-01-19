@@ -4,143 +4,769 @@ SMTP 隧道客户端 - 快速二进制模式
 
 版本: 1.3.0
 
-功能概述:
-本程序是一个 SMTP 隧道客户端，通过伪装成 SMTP 协议与服务器通信，
-然后切换到高效二进制模式进行数据传输。它提供了一个本地 SOCKS5 代理，
-允许任何支持 SOCKS5 的应用程序通过隧道连接到远程服务器。
-
-工作原理:
-1. 连接到 SMTP 隧道服务器
-2. 执行标准 SMTP 握手（EHLO, STARTTLS, AUTH）
-3. 发送 "BINARY" 命令切换到二进制协议模式
-4. 启动本地 SOCKS5 代理服务器
-5. 将 SOCKS5 客户端的连接请求通过隧道转发到服务器
-6. 在 SOCKS 客户端和隧道服务器之间双向转发数据
-
 协议说明:
-- SMTP 握手阶段: 使用标准 SMTP 协议，看起来像正常的 SMTP 客户端
-- 二进制模式阶段: 使用自定义二进制协议，支持多通道并发传输
+1. SMTP 握手 (EHLO, STARTTLS, AUTH) - 模拟真实 SMTP 协议
+2. AUTH 完成后,发送 "BINARY" 切换到流式传输模式
+3. 全双工二进制协议 - 数据以 TCP 允许的最快速度传输
 
-二进制协议帧格式:
-[类型(1B)] [通道ID(2B, 大端序)] [载荷长度(2B, 大端序)] [载荷数据]
-
-帧类型:
-- FRAME_DATA (0x01): 数据帧，用于传输实际数据
-- FRAME_CONNECT (0x02): 连接请求帧
-- FRAME_CONNECT_OK (0x03): 连接成功响应帧
-- FRAME_CONNECT_FAIL (0x04): 连接失败响应帧
-- FRAME_CLOSE (0x05): 关闭通道帧
-
-特性:
-- 多用户支持（用户名 + 密钥认证）
-- TLS 加密通信
-- 自动重连机制（指数退避）
-- 支持 IPv4、IPv6 和域名地址
-- 多通道并发传输
-- 完整的错误处理和日志记录
-
-使用方法:
-1. 配置 config.yaml 文件或使用命令行参数
-2. 运行: python client.py --config config.yaml
-3. 配置应用程序使用 SOCKS5 代理（默认 127.0.0.1:1080）
-
-命令行参数:
---config, -c: 配置文件路径（默认: config.yaml）
---server: 服务器域名
---server-port: 服务器端口（默认: 587）
---socks-port, -p: SOCKS5 代理端口（默认: 1080）
---username, -u: 认证用户名
---secret, -s: 认证密钥
---ca-cert: CA 证书路径
---debug, -d: 启用调试日志
-
-依赖:
-- Python 3.7+
-- asyncio
-- ssl
-- struct
-- socket
-- dataclasses
+功能特点:
+- 多用户支持 (用户名 + 密钥认证)
+- 支持 SOCKS5 代理协议
+- 自动重连机制
+- TLS 加密传输
+- 高性能全双工数据传输
 """
 
 import asyncio
+import ssl
 import logging
 import argparse
-import sys
+import struct
+import time
+import os
+import socket
+from typing import Dict, Optional, Tuple
+from dataclasses import dataclass
 
-from config import load_config, ClientConfig
-from tunnel.client import TunnelClient
-from socks5_server import SOCKS5Server
+from common import TunnelCrypto, load_config, ClientConfig
 
+# 配置日志格式,输出时间、日志级别和消息内容
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+# 获取客户端专用的日志记录器
 logger = logging.getLogger('smtp-tunnel-client')
 
 
+# ============================================================================
+# 二进制协议定义
+# ============================================================================
+
+# 帧类型常量定义
+FRAME_DATA = 0x01        # 数据帧 - 用于传输实际数据
+FRAME_CONNECT = 0x02     # 连接帧 - 用于建立新连接
+FRAME_CONNECT_OK = 0x03  # 连接成功帧 - 服务器确认连接成功
+FRAME_CONNECT_FAIL = 0x04 # 连接失败帧 - 服务器拒绝连接
+FRAME_CLOSE = 0x05       # 关闭帧 - 用于关闭连接
+FRAME_HEADER_SIZE = 5     # 帧头大小 - 1字节帧类型 + 2字节通道ID + 2字节载荷长度
+
+def make_frame(frame_type: int, channel_id: int, payload: bytes = b'') -> bytes:
+    """
+    创建二进制协议帧
+    
+    参数:
+        frame_type: 帧类型 (数据/连接/关闭等)
+        channel_id: 通道ID,用于标识不同的连接
+        payload: 载荷数据 (可选)
+        
+    返回:
+        完整的二进制帧,格式为: 帧类型(1B) + 通道ID(2B) + 载荷长度(2B) + 载荷数据
+    """
+    return struct.pack('>BHH', frame_type, channel_id, len(payload)) + payload
+
+def make_connect_payload(host: str, port: int) -> bytes:
+    """
+    创建连接请求载荷
+    
+    参数:
+        host: 目标主机名
+        port: 目标端口
+        
+    返回:
+        连接载荷二进制数据,格式为: 主机名长度(1B) + 主机名 + 端口(2B)
+    """
+    host_bytes = host.encode('utf-8')
+    return struct.pack('>B', len(host_bytes)) + host_bytes + struct.pack('>H', port)
+
+
+# ============================================================================
+# SOCKS5 协议定义
+# ============================================================================
+
+class SOCKS5:
+    """SOCKS5 代理协议常量定义"""
+    VERSION = 0x05        # SOCKS5 协议版本
+    AUTH_NONE = 0x00      # 无需认证
+    CMD_CONNECT = 0x01    # 连接命令
+    ATYP_IPV4 = 0x01      # IPv4 地址类型
+    ATYP_DOMAIN = 0x03    # 域名地址类型
+    ATYP_IPV6 = 0x04      # IPv6 地址类型
+    REP_SUCCESS = 0x00    # 成功响应
+    REP_FAILURE = 0x01    # 失败响应
+
+
+@dataclass
+class Channel:
+    """
+    通道数据类
+    
+    用于维护每个 SOCKS5 连接的状态和 I/O 流
+    """
+    channel_id: int                    # 通道唯一标识符
+    reader: asyncio.StreamReader      # 异步读取流
+    writer: asyncio.StreamWriter      # 异步写入流
+    host: str                          # 目标主机名
+    port: int                          # 目标端口号
+    connected: bool = False           # 连接状态标志
+
+
+# ============================================================================
+# 隧道客户端
+# ============================================================================
+
+class TunnelClient:
+    """
+    SMTP 隧道客户端
+    
+    负责与服务端建立 SMTP 连接,完成握手和认证,然后切换到二进制模式进行数据传输
+    支持多通道并发,每个通道对应一个 SOCKS5 连接
+    """
+    
+    def __init__(self, config: ClientConfig, ca_cert: str = None):
+        """
+        初始化隧道客户端
+        
+        参数:
+            config: 客户端配置对象,包含服务器地址、端口、用户名等信息
+            ca_cert: CA 证书路径,用于 TLS 验证 (可选)
+        """
+        self.config = config
+        self.ca_cert = ca_cert
+
+        # 与服务端的连接流
+        self.reader: Optional[asyncio.StreamReader] = None
+        self.writer: Optional[asyncio.StreamWriter] = None
+        self.connected = False
+
+        # 通道管理
+        self.channels: Dict[int, Channel] = {}      # 所有活跃通道
+        self.next_channel_id = 1                     # 下一个通道ID
+        self.channel_lock = asyncio.Lock()          # 通道ID分配锁
+
+        # 连接事件管理 - 用于等待服务器响应
+        self.connect_events: Dict[int, asyncio.Event] = {}    # 通道连接事件
+        self.connect_results: Dict[int, bool] = {}            # 连接结果缓存
+
+        # 写入锁 - 防止并发写入导致数据混乱
+        self.write_lock = asyncio.Lock()
+
+    async def connect(self) -> bool:
+        """
+        连接到服务器并完成 SMTP 握手,然后切换到二进制模式
+        
+        返回:
+            bool: 连接成功返回 True,失败返回 False
+        """
+        try:
+            logger.info(f"正在连接到 {self.config.server_host}:{self.config.server_port}")
+
+            # 建立与服务器的 TCP 连接,超时时间 30 秒
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_connection(self.config.server_host, self.config.server_port),
+                timeout=30.0
+            )
+
+            # 执行 SMTP 握手流程
+            if not await self._smtp_handshake():
+                return False
+
+            self.connected = True
+            logger.info("已连接 - 二进制模式已激活")
+            return True
+
+        except Exception as e:
+            logger.error(f"连接失败: {e}")
+            return False
+
+    async def _smtp_handshake(self) -> bool:
+        """
+        执行 SMTP 握手流程,然后切换到二进制模式
+        
+        流程:
+        1. 接收服务器欢迎消息
+        2. 发送 EHLO 命令
+        3. 发送 STARTTLS 命令并升级 TLS
+        4. 再次发送 EHLO 命令
+        5. 进行身份认证
+        6. 发送 BINARY 命令切换到二进制模式
+        
+        返回:
+            bool: 握手成功返回 True,失败返回 False
+        """
+        try:
+            # 等待服务器欢迎消息 (220)
+            line = await self._read_line()
+            if not line or not line.startswith('220'):
+                return False
+
+            # 发送 EHLO 命令
+            await self._send_line("EHLO tunnel-client.local")
+            if not await self._expect_250():
+                return False
+
+            # 发送 STARTTLS 命令
+            await self._send_line("STARTTLS")
+            line = await self._read_line()
+            if not line or not line.startswith('220'):
+                return False
+
+            # 升级到 TLS 加密连接
+            await self._upgrade_tls()
+
+            # TLS 升级后再次发送 EHLO
+            await self._send_line("EHLO tunnel-client.local")
+            if not await self._expect_250():
+                return False
+
+            # 进行身份认证
+            timestamp = int(time.time())
+            crypto = TunnelCrypto(self.config.secret, is_server=False)
+            token = crypto.generate_auth_token(timestamp, self.config.username)
+
+            await self._send_line(f"AUTH PLAIN {token}")
+            line = await self._read_line()
+            if not line or not line.startswith('235'):
+                logger.error(f"认证失败: {line}")
+                return False
+
+            # 切换到二进制模式
+            await self._send_line("BINARY")
+            line = await self._read_line()
+            if not line or not line.startswith('299'):
+                logger.error(f"切换二进制模式失败: {line}")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"握手错误: {e}")
+            return False
+
+    async def _upgrade_tls(self):
+        """
+        将连接升级为 TLS 加密
+        
+        使用系统默认的 SSL 上下文,如果提供了 CA 证书则使用证书验证
+        """
+        ssl_context = ssl.create_default_context()
+        if self.ca_cert and os.path.exists(self.ca_cert):
+            # 使用自定义 CA 证书进行验证
+            ssl_context.load_verify_locations(self.ca_cert)
+        else:
+            # 跳过主机名验证和证书验证 (用于自签名证书)
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+        # 获取现有的传输层和协议对象
+        transport = self.writer.transport
+        protocol = self.writer._protocol
+        loop = asyncio.get_event_loop()
+
+        # 启动 TLS 握手,返回新的传输层
+        new_transport = await loop.start_tls(
+            transport, protocol, ssl_context,
+            server_hostname=self.config.server_host
+        )
+
+        # 更新 writer 和 reader 的传输层引用
+        self.writer._transport = new_transport
+        self.reader._transport = new_transport
+        logger.debug("TLS 加密已建立")
+
+    async def _send_line(self, line: str):
+        """
+        发送一行文本数据
+        
+        参数:
+            line: 要发送的文本,会自动添加 CRLF 换行符
+        """
+        self.writer.write(f"{line}\r\n".encode())
+        await self.writer.drain()
+
+    async def _read_line(self) -> Optional[str]:
+        """
+        读取一行文本数据
+        
+        返回:
+            str: 读取的文本行,去除首尾空白
+            None: 超时或连接断开
+        """
+        try:
+            # 读取一行,超时时间 60 秒
+            data = await asyncio.wait_for(self.reader.readline(), timeout=60.0)
+            if not data:
+                return None
+            return data.decode('utf-8', errors='replace').strip()
+        except:
+            return None
+
+    async def _expect_250(self) -> bool:
+        """
+        期望并跳过 SMTP 多行响应,直到收到 250 成功响应
+        
+        SMTP 命令可能返回多行响应,每行以 250- 开头,最后一行以 250 开头
+        
+        返回:
+            bool: 收到 250 响应返回 True,否则返回 False
+        """
+        while True:
+            line = await self._read_line()
+            if not line:
+                return False
+            if line.startswith('250 '):
+                return True
+            if line.startswith('250-'):
+                continue
+            return False
+
+    async def start_receiver(self):
+        """启动后台任务,持续接收来自服务器的帧"""
+        asyncio.create_task(self._receiver_loop())
+
+    async def _receiver_loop(self):
+        """
+        接收并分发来自服务器的帧
+        
+        持续读取二进制数据,解析帧,并根据帧类型进行相应处理
+        """
+        buffer = b''  # 接收缓冲区
+
+        while self.connected:
+            try:
+                # 读取数据,超时时间 300 秒 (5分钟)
+                chunk = await asyncio.wait_for(self.reader.read(65536), timeout=300.0)
+                if not chunk:
+                    break
+                buffer += chunk
+
+                # 处理缓冲区中的完整帧
+                while len(buffer) >= FRAME_HEADER_SIZE:
+                    # 解析帧头: 帧类型(1B) + 通道ID(2B) + 载荷长度(2B)
+                    frame_type, channel_id, payload_len = struct.unpack('>BHH', buffer[:5])
+                    total_len = FRAME_HEADER_SIZE + payload_len
+
+                    # 如果数据不足一个完整帧,等待更多数据
+                    if len(buffer) < total_len:
+                        break
+
+                    # 提取载荷并从缓冲区移除
+                    payload = buffer[FRAME_HEADER_SIZE:total_len]
+                    buffer = buffer[total_len:]
+
+                    # 处理该帧
+                    await self._handle_frame(frame_type, channel_id, payload)
+
+            except asyncio.TimeoutError:
+                # 超时继续循环,保持连接活跃
+                continue
+            except Exception as e:
+                logger.error(f"接收器错误: {e}")
+                break
+
+        # 连接断开
+        self.connected = False
+
+    async def _handle_frame(self, frame_type: int, channel_id: int, payload: bytes):
+        """
+        处理接收到的帧
+        
+        参数:
+            frame_type: 帧类型 (数据/连接成功/连接失败/关闭)
+            channel_id: 通道ID
+            payload: 帧载荷数据
+        """
+        if frame_type == FRAME_CONNECT_OK:
+            # 连接成功 - 唤醒等待该通道连接的事件
+            if channel_id in self.connect_events:
+                self.connect_results[channel_id] = True
+                self.connect_events[channel_id].set()
+
+        elif frame_type == FRAME_CONNECT_FAIL:
+            # 连接失败 - 唤醒等待该通道连接的事件
+            if channel_id in self.connect_events:
+                self.connect_results[channel_id] = False
+                self.connect_events[channel_id].set()
+
+        elif frame_type == FRAME_DATA:
+            # 数据帧 - 将数据转发到对应的通道
+            channel = self.channels.get(channel_id)
+            if channel and channel.connected:
+                try:
+                    channel.writer.write(payload)
+                    await channel.writer.drain()
+                except:
+                    # 写入失败,关闭通道
+                    await self._close_channel(channel)
+
+        elif frame_type == FRAME_CLOSE:
+            # 关闭帧 - 关闭对应的通道
+            channel = self.channels.get(channel_id)
+            if channel:
+                await self._close_channel(channel)
+
+    async def send_frame(self, frame_type: int, channel_id: int, payload: bytes = b''):
+        """
+        向服务器发送帧
+        
+        参数:
+            frame_type: 帧类型
+            channel_id: 通道ID
+            payload: 载荷数据
+        """
+        if not self.connected or not self.writer:
+            return
+        async with self.write_lock:
+            try:
+                frame = make_frame(frame_type, channel_id, payload)
+                self.writer.write(frame)
+                await self.writer.drain()
+            except Exception:
+                # 发送失败,标记连接断开
+                self.connected = False
+
+    async def open_channel(self, host: str, port: int) -> Tuple[int, bool]:
+        """
+        打开一个隧道通道
+        
+        向服务器发送连接请求,等待服务器响应
+        
+        参数:
+            host: 目标主机名
+            port: 目标端口
+            
+        返回:
+            Tuple[int, bool]: (通道ID, 是否成功)
+        """
+        if not self.connected:
+            return 0, False
+
+        # 分配新的通道ID
+        async with self.channel_lock:
+            channel_id = self.next_channel_id
+            self.next_channel_id += 1
+
+        # 创建事件用于等待服务器响应
+        event = asyncio.Event()
+        self.connect_events[channel_id] = event
+        self.connect_results[channel_id] = False
+
+        # 发送连接请求
+        try:
+            payload = make_connect_payload(host, port)
+            await self.send_frame(FRAME_CONNECT, channel_id, payload)
+        except Exception:
+            return channel_id, False
+
+        # 等待服务器响应,超时时间 30 秒
+        try:
+            await asyncio.wait_for(event.wait(), timeout=30.0)
+            success = self.connect_results.get(channel_id, False)
+        except asyncio.TimeoutError:
+            success = False
+
+        # 清理事件和结果
+        self.connect_events.pop(channel_id, None)
+        self.connect_results.pop(channel_id, None)
+
+        return channel_id, success
+
+    async def send_data(self, channel_id: int, data: bytes):
+        """
+        在通道上发送数据
+        
+        参数:
+            channel_id: 通道ID
+            data: 要发送的数据
+        """
+        await self.send_frame(FRAME_DATA, channel_id, data)
+
+    async def close_channel_remote(self, channel_id: int):
+        """
+        通知服务器关闭通道
+        
+        参数:
+            channel_id: 要关闭的通道ID
+        """
+        await self.send_frame(FRAME_CLOSE, channel_id)
+
+    async def _close_channel(self, channel: Channel):
+        """
+        关闭本地通道
+        
+        参数:
+            channel: 要关闭的通道对象
+        """
+        if not channel.connected:
+            return
+        channel.connected = False
+
+        # 关闭写入流
+        try:
+            channel.writer.close()
+            await channel.writer.wait_closed()
+        except:
+            pass
+
+        # 从通道列表中移除
+        self.channels.pop(channel.channel_id, None)
+
+    async def disconnect(self):
+        """断开连接并清理所有资源"""
+        self.connected = False
+        
+        # 关闭所有通道
+        for channel in list(self.channels.values()):
+            await self._close_channel(channel)
+        
+        # 关闭与服务器的连接
+        if self.writer:
+            try:
+                self.writer.close()
+                await asyncio.wait_for(self.writer.wait_closed(), timeout=2.0)
+            except:
+                pass
+        
+        # 清理所有资源
+        self.reader = None
+        self.writer = None
+        self.channels.clear()
+        self.connect_events.clear()
+        self.connect_results.clear()
+
+
+# ============================================================================
+# SOCKS5 代理服务器
+# ============================================================================
+
+class SOCKS5Server:
+    """
+    SOCKS5 代理服务器
+    
+    在本地监听 SOCKS5 连接,将连接请求通过隧道转发到远程服务器
+    充当本地 SOCKS5 代理和隧道客户端之间的桥梁
+    """
+    
+    def __init__(self, tunnel: TunnelClient, host: str = '127.0.0.1', port: int = 1080):
+        """
+        初始化 SOCKS5 服务器
+        
+        参数:
+            tunnel: 隧道客户端实例,用于转发连接
+            host: 监听地址 (默认: 127.0.0.1)
+            port: 监听端口 (默认: 1080)
+        """
+        self.tunnel = tunnel
+        self.host = host
+        self.port = port
+
+    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        """
+        处理 SOCKS5 客户端连接
+        
+        流程:
+        1. 握手阶段 - 确认 SOCKS5 版本,选择认证方式
+        2. 请求阶段 - 解析连接请求,获取目标地址和端口
+        3. 连接阶段 - 通过隧道建立连接
+        4. 转发阶段 - 在客户端和隧道之间转发数据
+        
+        参数:
+            reader: 客户端读取流
+            writer: 客户端写入流
+        """
+        channel = None
+        try:
+            # 检查隧道是否已连接
+            if not self.tunnel.connected:
+                writer.close()
+                return
+
+            # SOCKS5 握手 - 读取客户端版本和认证方法
+            data = await reader.read(2)
+            if len(data) < 2 or data[0] != SOCKS5.VERSION:
+                return
+
+            nmethods = data[1]
+            # 跳过认证方法列表
+            await reader.read(nmethods)
+
+            # 响应握手 - 选择无需认证
+            writer.write(bytes([SOCKS5.VERSION, SOCKS5.AUTH_NONE]))
+            await writer.drain()
+
+            # 读取连接请求
+            data = await reader.read(4)
+            if len(data) < 4:
+                return
+
+            version, cmd, _, atyp = data
+
+            # 只支持 CONNECT 命令
+            if cmd != SOCKS5.CMD_CONNECT:
+                writer.write(bytes([SOCKS5.VERSION, 0x07, 0, 1, 0, 0, 0, 0, 0, 0]))
+                await writer.drain()
+                return
+
+            # 解析目标地址
+            if atyp == SOCKS5.ATYP_IPV4:
+                # IPv4 地址 (4字节)
+                addr_data = await reader.read(4)
+                host = socket.inet_ntoa(addr_data)
+            elif atyp == SOCKS5.ATYP_DOMAIN:
+                # 域名 (1字节长度 + 域名)
+                length = (await reader.read(1))[0]
+                host = (await reader.read(length)).decode()
+            elif atyp == SOCKS5.ATYP_IPV6:
+                # IPv6 地址 (16字节)
+                addr_data = await reader.read(16)
+                host = socket.inet_ntop(socket.AF_INET6, addr_data)
+            else:
+                return
+
+            # 读取目标端口 (2字节大端序)
+            port_data = await reader.read(2)
+            port = struct.unpack('>H', port_data)[0]
+
+            logger.info(f"连接请求: {host}:{port}")
+
+            # 通过隧道打开连接
+            channel_id, success = await self.tunnel.open_channel(host, port)
+
+            if success:
+                # 连接成功 - 响应客户端
+                writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_SUCCESS, 0, 1, 0, 0, 0, 0, 0, 0]))
+                await writer.drain()
+
+                # 创建通道对象并注册
+                channel = Channel(
+                    channel_id=channel_id,
+                    reader=reader,
+                    writer=writer,
+                    host=host,
+                    port=port,
+                    connected=True
+                )
+                self.tunnel.channels[channel_id] = channel
+
+                # 启动数据转发循环
+                await self._forward_loop(channel)
+            else:
+                # 连接失败 - 通知客户端
+                writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_FAILURE, 0, 1, 0, 0, 0, 0, 0, 0]))
+                await writer.drain()
+
+        except Exception as e:
+            logger.debug(f"SOCKS 错误: {e}")
+        finally:
+            # 清理: 通知服务器关闭通道,关闭客户端连接
+            if channel:
+                await self.tunnel.close_channel_remote(channel.channel_id)
+                await self.tunnel._close_channel(channel)
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except:
+                pass
+
+    async def _forward_loop(self, channel: Channel):
+        """
+        数据转发循环
+        
+        从 SOCKS5 客户端读取数据,通过隧道发送到服务器
+        
+        参数:
+            channel: 通道对象
+        """
+        try:
+            while channel.connected and self.tunnel.connected:
+                try:
+                    # 读取数据,超时 0.1 秒以支持优雅退出
+                    data = await asyncio.wait_for(channel.reader.read(32768), timeout=0.1)
+                    if data:
+                        # 发送到隧道服务器
+                        await self.tunnel.send_data(channel.channel_id, data)
+                    elif data == b'':
+                        # 客户端断开连接
+                        break
+                except asyncio.TimeoutError:
+                    continue
+        except:
+            pass
+
+    async def start(self):
+        """
+        启动 SOCKS5 服务器
+        
+        在指定地址和端口上监听并接受客户端连接
+        """
+        server = await asyncio.start_server(self.handle_client, self.host, self.port)
+        addr = server.sockets[0].getsockname()
+        logger.info(f"SOCKS5 代理服务已启动: {addr[0]}:{addr[1]}")
+
+        async with server:
+            await server.serve_forever()
+
+
+# ============================================================================
+# 主程序
+# ============================================================================
+
 async def run_client(config: ClientConfig, ca_cert: str):
     """
-    运行客户端并实现自动重连机制
+    运行客户端,支持自动重连
     
-    主循环逻辑:
-    1. 尝试连接到隧道服务器
-    2. 如果连接失败，等待后重试（使用指数退避）
-    3. 如果连接成功，启动 SOCKS5 代理服务器
-    4. 等待连接断开或用户中断
-    5. 清理资源并重新开始循环
-    
-    重连策略:
-    - 初始延迟: 2 秒
-    - 最大延迟: 30 秒
-    - 连接失败时延迟翻倍（指数退避）
-    - 连接成功后重置延迟
-    
-    Args:
+    参数:
         config: 客户端配置对象
         ca_cert: CA 证书路径
     """
-    reconnect_delay = 2
-    max_reconnect_delay = 30
+    reconnect_delay = 2      # 重连尝试间隔 (秒)
+    max_reconnect_delay = 30  # 最大重连延迟 (秒)
     current_delay = reconnect_delay
 
     while True:
         tunnel = TunnelClient(config, ca_cert)
 
+        # 尝试连接
         if not await tunnel.connect():
-            logger.warning(f"连接失败，{current_delay}秒后重试...")
+            logger.warning(f"连接失败,{current_delay}秒后重试...")
             await asyncio.sleep(current_delay)
             current_delay = min(current_delay * 2, max_reconnect_delay)
             continue
 
+        # 连接成功 - 重置延迟
         current_delay = reconnect_delay
-        
-        receiver_task = asyncio.create_task(tunnel._receiver_loop())
-        tunnel.receiver_task = receiver_task
 
+        # 在后台启动接收器
+        receiver_task = asyncio.create_task(tunnel._receiver_loop())
+
+        # 启动 SOCKS 服务器
         socks = SOCKS5Server(tunnel, config.socks_host, config.socks_port)
 
         try:
+            # 创建 SOCKS 服务器但不阻塞
             socks_server = await asyncio.start_server(
                 socks.handle_client,
                 socks.host,
                 socks.port,
-                reuse_address=True
+                reuse_address=True  # 允许重启后快速重新绑定端口
             )
             addr = socks_server.sockets[0].getsockname()
-            logger.info(f"SOCKS5 代理在 {addr[0]}:{addr[1]}")
+            logger.info(f"SOCKS5 代理服务已启动: {addr[0]}:{addr[1]}")
 
+            # 等待以下任一事件: 接收器结束 (连接丢失) 或键盘中断
             async with socks_server:
                 try:
+                    # 等待接收器完成 (意味着连接丢失)
                     await receiver_task
                 except asyncio.CancelledError:
                     pass
 
+            # 连接丢失 - 立即重连
             if tunnel.connected:
                 tunnel.connected = False
 
-            logger.warning("连接丢失，正在重连...")
-            current_delay = reconnect_delay
+            logger.warning("连接丢失,正在重新连接...")
+            current_delay = reconnect_delay  # 为下次失败重置延迟
 
         except KeyboardInterrupt:
             logger.info("正在关闭...")
@@ -148,56 +774,51 @@ async def run_client(config: ClientConfig, ca_cert: str):
             return 0
         except OSError as e:
             if "Address already in use" in str(e):
-                logger.error(f"端口 {socks.port} 已被占用，等待中...")
+                logger.error(f"端口 {socks.port} 已被占用,等待中...")
                 await asyncio.sleep(2)
             else:
                 logger.error(f"SOCKS 服务器错误: {e}")
         finally:
             await tunnel.disconnect()
-            if tunnel.receiver_task:
-                tunnel.receiver_task.cancel()
-                try:
-                    await tunnel.receiver_task
-                except asyncio.CancelledError:
-                    pass
-                tunnel.receiver_task = None
+            receiver_task.cancel()
+            try:
+                await receiver_task
+            except asyncio.CancelledError:
+                pass
+
+        # 连接丢失后不延迟 - 仅在连接失败时延迟 (在循环顶部处理)
 
 
 def main():
     """
-    主函数 - 程序入口点
-    
-    解析命令行参数，加载配置文件，启动客户端。
+    主函数 - 解析命令行参数并启动客户端
     
     命令行参数:
-    --config, -c: 配置文件路径（默认: config.yaml）
-    --server: 服务器域名（TLS 需要 FQDN）
-    --server-port: 服务器端口
-    --socks-port, -p: SOCKS5 代理端口
-    --username, -u: 认证用户名
-    --secret, -s: 认证密钥
-    --ca-cert: CA 证书路径
-    --debug, -d: 启用调试日志
-    
-    配置优先级（从高到低）:
-    1. 命令行参数
-    2. 配置文件中的设置
-    3. 默认值
+        --config, -c: 配置文件路径 (默认: config.yaml)
+        --server: 服务器域名 (TLS 需要 FQDN)
+        --server-port: 服务器端口
+        --socks-port, -p: SOCKS5 代理端口
+        --username, -u: 认证用户名
+        --secret, -s: 认证密钥
+        --ca-cert: CA 证书路径
+        --debug, -d: 启用调试模式
     """
-    parser = argparse.ArgumentParser(description='SMTP 隧道客户端（快速模式）')
-    parser.add_argument('--config', '-c', default='config.yaml')
-    parser.add_argument('--server', default=None, help='服务器域名（TLS 需要 FQDN）')
-    parser.add_argument('--server-port', type=int, default=None)
-    parser.add_argument('--socks-port', '-p', type=int, default=None)
+    parser = argparse.ArgumentParser(description='SMTP 隧道客户端 (快速模式)')
+    parser.add_argument('--config', '-c', default='config.yaml', help='配置文件路径')
+    parser.add_argument('--server', default=None, help='服务器域名 (TLS 需要完全限定域名)')
+    parser.add_argument('--server-port', type=int, default=None, help='服务器端口')
+    parser.add_argument('--socks-port', '-p', type=int, default=None, help='SOCKS5 代理端口')
     parser.add_argument('--username', '-u', default=None, help='认证用户名')
-    parser.add_argument('--secret', '-s', default=None)
-    parser.add_argument('--ca-cert', default=None)
-    parser.add_argument('--debug', '-d', action='store_true')
+    parser.add_argument('--secret', '-s', default=None, help='认证密钥')
+    parser.add_argument('--ca-cert', default=None, help='CA 证书路径')
+    parser.add_argument('--debug', '-d', action='store_true', help='启用调试模式')
     args = parser.parse_args()
 
+    # 启用调试模式
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    # 加载配置文件
     try:
         config_data = load_config(args.config)
     except FileNotFoundError:
@@ -205,9 +826,7 @@ def main():
 
     client_conf = config_data.get('client', {})
 
-    # 从配置中提取 traffic 配置
-    traffic_conf = client_conf.get('traffic', {})
-
+    # 创建客户端配置 - 命令行参数优先于配置文件
     config = ClientConfig(
         server_host=args.server or client_conf.get('server_host', 'localhost'),
         server_port=args.server_port or client_conf.get('server_port', 587),
@@ -215,22 +834,21 @@ def main():
         socks_host=client_conf.get('socks_host', '127.0.0.1'),
         username=args.username or client_conf.get('username', ''),
         secret=args.secret or client_conf.get('secret', ''),
-        traffic_enabled=traffic_conf.get('enabled', False),
-        traffic_min_delay=traffic_conf.get('min_delay', 50),
-        traffic_max_delay=traffic_conf.get('max_delay', 500),
-        traffic_dummy_probability=traffic_conf.get('dummy_probability', 0.1),
     )
 
+    # 获取 CA 证书路径
     ca_cert = args.ca_cert or client_conf.get('ca_cert')
 
+    # 验证必需配置
     if not config.username:
-        logger.error("错误: 未配置用户名。请使用 --username 参数或在配置文件中设置 'username' 字段。")
+        logger.error("未配置用户名!")
         return 1
 
     if not config.secret:
-        logger.error("错误: 未配置密钥。请使用 --secret 参数或在配置文件中设置 'secret' 字段。")
+        logger.error("未配置密钥!")
         return 1
 
+    # 运行客户端
     try:
         return asyncio.run(run_client(config, ca_cert))
     except KeyboardInterrupt:
@@ -238,4 +856,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    exit(main())

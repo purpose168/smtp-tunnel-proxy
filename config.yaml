@@ -2,7 +2,7 @@
 # 复制此文件并根据您的设置进行自定义
 
 # ============================================================================
-# 服务器配置（用于 server.py）
+# 服务端配置（用于 server.py）
 # ============================================================================
 server:
   # 监听地址（0.0.0.0 表示所有网络接口）
@@ -11,8 +11,8 @@ server:
   # SMTP 提交端口（587 是标准端口）
   port: 587
 
-  # 在 SMTP 问候中显示的主机名
-  # 使用与服务器 DNS 匹配的真实主机名
+  # 在 SMTP 问候中通告的主机名
+  # 使用与服务器 DNS 匹配的逼真主机名
   hostname: "mail.example.com"
 
   # TLS 证书和密钥文件
@@ -24,74 +24,16 @@ server:
   # 包含用户密钥、IP 白名单和日志设置
   users_file: "users.yaml"
 
-  # 全局日志设置（可以按用户覆盖）
+  # 全局日志设置（可按用户覆盖）
   log_users: true
-
-  # 流量整形配置（可选，用于增强 DPI 规避效果）
-  traffic:
-    # 是否启用流量整形（默认: false）
-    enabled: false
-
-    # 消息之间的随机延迟范围（毫秒）
-    # 模拟人类行为（阅读、思考、输入）
-    min_delay: 50
-    max_delay: 500
-
-    # 发送虚拟消息的概率（0.0-1.0）
-    # 偶尔发送虚拟数据以增加流量随机性
-    dummy_probability: 0.1
-
-# ============================================================================
-# 日志配置
-# ============================================================================
-logging:
-  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  level: "INFO"
-
-  # 日志存储目录
-  log_dir: "/var/log/smtp-tunnel"
-
-  # 日志文件名（支持日期占位符，如 smtp-tunnel-%Y-%m-%d.log）
-  log_file: "smtp-tunnel.log"
-
-  # 单个日志文件最大大小（字节）- 默认 10MB
-  max_bytes: 10485760
-
-  # 保留的备份文件数量
-  backup_count: 10
-
-  # 日志轮转类型: size（按大小）, date（按日期）, both（同时按大小和日期）
-  rotation_type: "both"
-
-  # 日期格式（用于文件名）
-  date_format: "%Y-%m-%d"
-
-  # 日志格式字符串
-  format_string: "%(asctime)s - %(name)s - %(levelname)s - [%(context)s] - %(message)s"
-
-  # 是否输出到控制台
-  enable_console: true
-
-  # 是否输出到文件
-  enable_file: true
-
-  # 是否输出到系统日志（systemd journal）
-  enable_journal: true
-
-  # 上下文字段列表（用于追踪请求、用户、会话等）
-  context_fields:
-    - "username"
-    - "ip"
-    - "session_id"
-    - "connection_id"
 
 # ============================================================================
 # 客户端配置（用于 client.py）
 # 此部分在生成客户端包时使用
 # ============================================================================
 client:
-  # 隧道服务器域名（证书验证需要 FQDN）
-  # 使用域名而不是 IP 地址 - 参阅 README 了解免费 DNS 选项
+  # 隧道服务器域名（证书验证需要完全限定域名）
+  # 使用域名而不是 IP 地址 - 有关免费 DNS 选项请参阅 README
   server_host: "mail.example.com"
 
   # 隧道服务器端口
@@ -100,29 +42,15 @@ client:
   # 本地 SOCKS5 代理端口
   socks_port: 1080
 
-  # 本地 SOCKS5 绑定地址（127.0.0.1 = 仅本地主机）
+  # 本地 SOCKS5 绑定地址（127.0.0.1 = 仅限本地）
   socks_host: "127.0.0.1"
 
   # 用户名和密钥在生成的客户端配置中按用户设置
-  # username: "由 adduser 设置"
-  # secret: "由 adduser 设置"
+  # username: "set-by-adduser"
+  # secret: "set-by-adduser"
 
-  # 用于服务器验证的 CA 证书（出于安全考虑推荐使用）
+  # 用于服务器验证的 CA 证书（出于安全考虑建议使用）
   ca_cert: "ca.crt"
-
-  # 流量整形配置（可选，用于增强 DPI 规避效果）
-  traffic:
-    # 是否启用流量整形（默认: false）
-    enabled: false
-
-    # 消息之间的随机延迟范围（毫秒）
-    # 模拟人类行为（阅读、思考、输入）
-    min_delay: 50
-    max_delay: 500
-
-    # 发送虚拟消息的概率（0.0-1.0）
-    # 偶尔发送虚拟数据以增加流量随机性
-    dummy_probability: 0.1
 
 # ============================================================================
 # 隐蔽配置（DPI 规避）- 可选
@@ -138,5 +66,5 @@ stealth:
     - 8192
     - 16384
 
-  # 发送虚拟（空）消息的概率
+  # 发送虚假（空）消息的概率
   dummy_message_probability: 0.1
