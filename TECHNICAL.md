@@ -161,7 +161,7 @@ sequenceDiagram
 graph TD
     subgraph Handshake["握手阶段<br/>(仅一次)"]
         A[EHLO → STARTTLS → TLS → EHLO → AUTH → BINARY]
-        B[时间: ~200-500ms<br/>(取决于网络延迟)]
+        B[时间: ~200-500ms (取决于网络延迟)]
     end
 
     subgraph Streaming["流式传输阶段<br/>(会话的其余部分)"]
