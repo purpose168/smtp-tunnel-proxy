@@ -108,12 +108,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant DPI as DPI<br/>(深度包检测)
+    participant DPI as DPI(深度包检测)
     participant Server as 服务器
     participant Client as 客户端
 
     rect rgb(224, 255, 224)
-        Note over DPI,Client: DPI 无法看到这部分<br/>(使用 TLS 加密)
+        Note over DPI,Client: DPI 无法看到这部分(使用 TLS 加密)
         Client->>Server: EHLO client.local
         Server->>Client: 250-mail.example.com 250-AUTH PLAIN LOGIN 250 8BITMIME
         Client->>Server: AUTH PLAIN &lt;token&gt;
