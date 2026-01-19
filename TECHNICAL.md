@@ -159,12 +159,12 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    subgraph Handshake["握手阶段<br/>(仅一次)"]
+    subgraph Handshake["握手阶段 仅一次"]
         A[EHLO → STARTTLS → TLS → EHLO → AUTH → BINARY]
-        B[时间: ~200-500ms (取决于网络延迟)]
+        B["时间: ~200-500ms 取决于网络延迟"]
     end
 
-    subgraph Streaming["流式传输阶段<br/>(会话的其余部分)"]
+    subgraph Streaming["流式传输阶段 会话的其余部分"]
         C[帧格式]
         D[┌─────────┬────────────┬────────────┬─────────────┐]
         E[│  类型   │ 通道 ID     │   长度     │   负载       │]
@@ -173,7 +173,7 @@ graph TD
         H[特点]
         I[• 全双工 - 同时发送和接收]
         J[• 无需等待响应]
-        K[• 每帧 5 字节开销<br/>(对比 SMTP 的数百字节)]
+        K["• 每帧 5 字节开销 对比 SMTP 的数百字节"]
         L[• 原始二进制 - 无 base64 编码]
         M[• 仅受网络带宽限制的速度]
     end
@@ -202,17 +202,17 @@ graph TD
 
 ```mermaid
 graph LR
-    subgraph Client["您的计算机<br/>受审查的网络"]
-        A[Browser<br/>or App] -->|SOCKS5| B[Client<br/>client.py]
+    subgraph Client["您的计算机 受审查的网络"]
+        A["Browser or App"] -->|SOCKS5| B["Client client.py"]
     end
 
-    subgraph Server["您的 VPS<br/>自由互联网"]
-        C[Server<br/>server.py] -->|TCP| D[Outbound<br/>Connector]
+    subgraph Server["您的 VPS 自由互联网"]
+        C["Server server.py"] -->|TCP| D["Outbound Connector"]
     end
 
-    E[Website<br/>API Service]
+    E["Website API Service"]
 
-    B <-->|TLS 隧道<br/>端口 587| C
+    B <-->|"TLS 隧道 端口 587"| C
     D <-->|TCP| E
 
     style Client fill:#f9f,stroke:#333,stroke-width:2px
@@ -400,10 +400,10 @@ graph TD
 
 ```mermaid
 graph TD
-    A[步骤 1<br/>客户端生成时间戳<br/>timestamp] --> B[步骤 2<br/>客户端计算 HMAC-SHA256<br/>secret, smtp-tunnel-auth: + timestamp]
-    B --> C[步骤 3<br/>客户端发送 AUTH PLAIN<br/>base64timestamp: + hmac]
-    C --> D[步骤 4<br/>服务器验证<br/>时间戳在 5 分钟内<br/>防止重放攻击<br/>HMAC 匹配<br/>证明知道密钥]
-    D --> E[步骤 5<br/>服务器响应<br/>235 身份验证成功<br/>Authentication successful]
+    A["步骤 1 客户端生成时间戳 timestamp"] --> B["步骤 2 客户端计算 HMAC-SHA256 secret, smtp-tunnel-auth: + timestamp"]
+    B --> C["步骤 3 客户端发送 AUTH PLAIN base64timestamp: + hmac"]
+    C --> D["步骤 4 服务器验证 时间戳在 5 分钟内 防止重放攻击 HMAC 匹配 证明知道密钥"]
+    D --> E["步骤 5 服务器响应 235 身份验证成功 Authentication successful"]
 
     style A fill:#e6f7ff,stroke:#333,stroke-width:2px
     style B fill:#fff4e6,stroke:#333,stroke-width:2px
@@ -457,12 +457,12 @@ TLS 证书是证明服务器身份的数字文档。当客户端连接到服务�
 
 ```mermaid
 graph TD
-    A[客户端想要连接到<br/>mail.example.com] --> B[步骤 1<br/>服务器出示证书]
-    B --> C[证书内容<br/>Subject: mail.example.com<br/>SAN: DNSName=mail.example.com<br/>Signed by: Your CA]
-    C --> D[步骤 2<br/>客户端检查]
+    A["客户端想要连接到 mail.example.com"] --> B["步骤 1 服务器出示证书"]
+    B --> C["证书内容 Subject: mail.example.com SAN: DNSName=mail.example.com Signed by: Your CA"]
+    C --> D["步骤 2 客户端检查"]
     D --> E{证书是否由受信任的 CA 签名?}
-    E -->|YES| F{mail.example.com<br/>是否匹配 SAN?}
-    F -->|YES| G[步骤 3<br/>安全建立连接]
+    E -->|YES| F{"mail.example.com 是否匹配 SAN?"}
+    F -->|YES| G["步骤 3 安全建立连接"]
     E -->|NO| H[连接被拒绝]
     F -->|NO| H
 
@@ -506,11 +506,11 @@ graph TB
         C -->|转发| D[服务器]
         D -->|响应| C
         C -->|响应| B
-        B -->|解密并读取所有流量<br/>重新加密后转发| A
+        B -->|"解密并读取所有流量 重新加密后转发"| A
         
         E[攻击者出示自己的证书]
-        F[客户端接受它<br/>没有验证!]
-        G[您的流量完全暴露给攻击者<br/>YOUR TRAFFIC IS COMPLETELY EXPOSED]
+        F["客户端接受它 没有验证!"]
+        G["您的流量完全暴露给攻击者 YOUR TRAFFIC IS COMPLETELY EXPOSED"]
         
         A -.-> E
         E -.-> F
@@ -520,8 +520,8 @@ graph TB
     subgraph With["有证书验证 ca_cert 已设置 + 域名"]
         H[客户端] -->|连接| I[攻击者 MITM]
         I -.->|出示自己的证书| J[客户端检查证书]
-        J -->|这不是我的 CA 签名的!<br/>CONNECTION REFUSED| K[连接被拒绝<br/>Attack blocked!]
-        H -->|直接连接到真实服务器<br/>或根本不连接| L[安全连接]
+        J -->|"这不是我的 CA 签名的! CONNECTION REFUSED"| K["连接被拒绝 Attack blocked!"]
+        H -->|"直接连接到真实服务器 或根本不连接"| L[安全连接]
     end
 
     style Without fill:#ffe6e6,stroke:#333,stroke-width:2px
@@ -653,13 +653,13 @@ stealth:
 
 ```mermaid
 graph TD
-    subgraph TLS["单个 TLS 连接<br/>Single TLS Connection"]
-        A[通道 1<br/>浏览器标签 1<br/>→ google.com:443]
-        B[通道 2<br/>浏览器标签 2<br/>→ github.com:443]
-        C[通道 3<br/>curl<br/>→ ifconfig.me:443]
-        D[通道 4<br/>SSH<br/>→ 远程服务器:22]
+    subgraph TLS["单个 TLS 连接 Single TLS Connection"]
+        A["通道 1 浏览器标签 1 → google.com:443"]
+        B["通道 2 浏览器标签 2 → github.com:443"]
+        C["通道 3 curl → ifconfig.me:443"]
+        D["通道 4 SSH → 远程服务器:22"]
         E[...]
-        F[通道 65535<br/>最大并发连接<br/>Max concurrent connections]
+        F["通道 65535 最大并发连接 Max concurrent connections"]
     end
 
     style TLS fill:#e6f7ff,stroke:#333,stroke-width:2px
