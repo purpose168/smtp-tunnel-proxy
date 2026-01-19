@@ -99,6 +99,17 @@ def generate_ca_certificate(
             ),
             critical=True,
         )
+        .add_extension(
+            # 主题密钥标识符: 标识证书中的公钥
+            x509.SubjectKeyIdentifier.from_public_key(private_key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            # 颁发者密钥标识符: 标识签发此证书的CA的公钥
+            # 对于自签名CA证书，颁发者密钥标识符指向自己的公钥
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key()),
+            critical=False,
+        )
         .sign(private_key, hashes.SHA256(), default_backend())  # 使用私钥签名
     )
 
@@ -181,6 +192,17 @@ def generate_server_certificate(
                 ExtendedKeyUsageOID.SERVER_AUTH,  # 服务器认证 (TLS 服务器)
                 ExtendedKeyUsageOID.CLIENT_AUTH,  # 客户端认证 (可选)
             ]),
+            critical=False,
+        )
+        .add_extension(
+            # 主题密钥标识符: 标识证书中的公钥
+            x509.SubjectKeyIdentifier.from_public_key(server_key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            # 颁发者密钥标识符: 标识签发此证书的CA的公钥
+            # 从CA证书中提取颁发者密钥标识符
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()),
             critical=False,
         )
         .sign(ca_key, hashes.SHA256(), default_backend())  # 使用 CA 私钥签名
