@@ -115,7 +115,7 @@ sequenceDiagram
     rect rgb(224, 255, 224)
         Note over DPI,Client: DPI 无法看到这部分<br/>(使用 TLS 加密)
         Client->>Server: EHLO client.local
-        Server->>Client: 250-mail.example.com 250-AUTH PLAIN LOGIN 250 8BITMIME
+        Server->>Client: 250-mail.example.com <br/>250-AUTH PLAIN LOGIN <br/>250 8BITMIME
         Client->>Server: AUTH PLAIN token;
         Server->>Client: 235 2.7.0 Authentication successful
         Client->>Server: BINARY
