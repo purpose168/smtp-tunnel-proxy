@@ -15,7 +15,7 @@
 import os
 import sys
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
@@ -77,8 +77,8 @@ def generate_ca_certificate(
         .issuer_name(issuer)            # 设置证书颁发者
         .public_key(private_key.public_key())  # 设置公钥
         .serial_number(x509.random_serial_number())  # 生成随机序列号
-        .not_valid_before(datetime.utcnow())        # 证书生效时间 (当前 UTC 时间)
-        .not_valid_after(datetime.utcnow() + timedelta(days=days_valid))  # 证书过期时间
+        .not_valid_before(datetime.now(timezone.utc))        # 证书生效时间 (当前 UTC 时间)
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=days_valid))  # 证书过期时间
         .add_extension(
             # 基本约束: 标识为 CA 证书,不允许下级 CA (path_length=0)
             x509.BasicConstraints(ca=True, path_length=0),
@@ -152,8 +152,8 @@ def generate_server_certificate(
         .issuer_name(ca_cert.subject)       # 设置证书颁发者 (CA)
         .public_key(server_key.public_key())  # 设置服务器公钥
         .serial_number(x509.random_serial_number())  # 生成随机序列号
-        .not_valid_before(datetime.utcnow())        # 证书生效时间
-        .not_valid_after(datetime.utcnow() + timedelta(days=days_valid))  # 证书过期时间
+        .not_valid_before(datetime.now(timezone.utc))        # 证书生效时间
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=days_valid))  # 证书过期时间
         .add_extension(san, critical=False)  # 添加主题备用名称扩展
         .add_extension(
             # 基本约束: 标识为非 CA 证书
