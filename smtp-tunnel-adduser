@@ -220,14 +220,63 @@ if %errorlevel% neq 0 (
 
 echo [信息] 找到 Python: %PYTHON%
 
+:: 检查Python虚拟环境工具
+echo [信息] 正在检查Python虚拟环境工具...
+%PYTHON% -c "import venv" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [错误] Python虚拟环境工具(venv)不可用!
+    echo.
+    echo 请确保您的Python版本支持venv模块(Python 3.3+)
+    echo 或使用以下命令安装:
+    echo   pip install virtualenv
+    echo.
+    pause
+    exit /b 1
+)
+echo [信息] Python虚拟环境工具检查通过
+
+:: 检查是否已存在虚拟环境
+if exist ".venv\Scripts\activate.bat" (
+    echo [信息] 检测到已存在的虚拟环境 .venv
+) else (
+    echo [信息] 正在创建Python虚拟环境...
+    %PYTHON% -m venv .venv
+    if %errorlevel% neq 0 (
+        echo [错误] 虚拟环境创建失败!
+        echo.
+        echo 请检查Python安装是否完整,或尝试手动创建虚拟环境:
+        echo   python -m venv .venv
+        echo.
+        pause
+        exit /b 1
+    )
+    echo [信息] 虚拟环境创建成功
+)
+
+:: 激活虚拟环境
+echo [信息] 正在激活虚拟环境...
+call .venv\Scripts\activate.bat
+if %errorlevel% neq 0 (
+    echo [错误] 虚拟环境激活失败!
+    echo.
+    echo 请检查.venv目录是否存在且完整
+    echo.
+    pause
+    exit /b 1
+)
+echo [信息] 虚拟环境已激活
+
 :: 检查/安装依赖
 echo [信息] 正在检查依赖...
-%PYTHON% -c "import yaml" >nul 2>&1
+python -c "import yaml" >nul 2>&1
 if %errorlevel% neq 0 (
     echo [信息] 正在安装依赖...
-    %PYTHON% -m pip install -r requirements.txt --quiet
+    python -m pip install -r requirements.txt --quiet
     if %errorlevel% neq 0 (
         echo [错误] 依赖安装失败
+        echo.
+        echo 尝试手动运行: python -m pip install -r requirements.txt
+        echo.
         pause
         exit /b 1
     )
@@ -242,7 +291,7 @@ echo 按 Ctrl+C 停止
 echo ─────────────────────────────────────────────────────────────
 echo.
 
-%PYTHON% client.py
+python client.py
 
 echo.
 echo 连接已关闭。
@@ -305,14 +354,56 @@ fi
 
 echo -e "${{GREEN}}[信息]${{NC}} 找到 Python: $PYTHON"
 
+# 检查Python虚拟环境工具
+echo -e "${{GREEN}}[信息]${{NC}} 正在检查Python虚拟环境工具..."
+if ! $PYTHON -c "import venv" &> /dev/null; then
+    echo -e "${{RED}}[错误]${{NC}} Python虚拟环境工具(venv)不可用!"
+    echo ""
+    echo "请确保您的Python版本支持venv模块(Python 3.3+)"
+    echo "或使用以下命令安装:"
+    echo "  pip install virtualenv"
+    echo ""
+    exit 1
+fi
+echo -e "${{GREEN}}[信息]${{NC}} Python虚拟环境工具检查通过"
+
+# 检查是否已存在虚拟环境
+if [ -f ".venv/bin/activate" ]; then
+    echo -e "${{GREEN}}[信息]${{NC}} 检测到已存在的虚拟环境 .venv"
+else
+    echo -e "${{GREEN}}[信息]${{NC}} 正在创建Python虚拟环境..."
+    $PYTHON -m venv .venv
+    if [ $? -ne 0 ]; then
+        echo -e "${{RED}}[错误]${{NC}} 虚拟环境创建失败!"
+        echo ""
+        echo "请检查Python安装是否完整,或尝试手动创建虚拟环境:"
+        echo "  python -m venv .venv"
+        echo ""
+        exit 1
+    fi
+    echo -e "${{GREEN}}[信息]${{NC}} 虚拟环境创建成功"
+fi
+
+# 激活虚拟环境
+echo -e "${{GREEN}}[信息]${{NC}} 正在激活虚拟环境..."
+source .venv/bin/activate
+if [ $? -ne 0 ]; then
+    echo -e "${{RED}}[错误]${{NC}} 虚拟环境激活失败!"
+    echo ""
+    echo "请检查.venv目录是否存在且完整"
+    echo ""
+    exit 1
+fi
+echo -e "${{GREEN}}[信息]${{NC}} 虚拟环境已激活"
+
 # 检查/安装依赖
 echo -e "${{GREEN}}[信息]${{NC}} 正在检查依赖..."
-if ! $PYTHON -c "import yaml" &> /dev/null; then
+if ! python -c "import yaml" &> /dev/null; then
     echo -e "${{YELLOW}}[信息]${{NC}} 正在安装依赖..."
-    $PYTHON -m pip install -r requirements.txt --quiet
+    python -m pip install -r requirements.txt --quiet
     if [ $? -ne 0 ]; then
         echo -e "${{RED}}[错误]${{NC}} 依赖安装失败"
-        echo "尝试运行: $PYTHON -m pip install -r requirements.txt"
+        echo "尝试运行: python -m pip install -r requirements.txt"
         exit 1
     fi
     echo -e "${{GREEN}}[信息]${{NC}} 依赖已安装"
@@ -326,7 +417,7 @@ echo -e "按 ${{YELLOW}}Ctrl+C${{NC}} 停止"
 echo "─────────────────────────────────────────────────────────────"
 echo ""
 
-$PYTHON client.py
+python client.py
 
 echo ""
 echo -e "${{YELLOW}}连接已关闭。${{NC}}"
