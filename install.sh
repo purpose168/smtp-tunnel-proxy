@@ -364,6 +364,12 @@ conda_install_packages() {
 
 # 创建 Conda 环境卸载脚本
 create_conda_uninstall_script() {
+    # 确保目录存在
+    if [ ! -d "$INSTALL_DIR" ]; then
+        print_error "安装目录不存在: $INSTALL_DIR"
+        return 1
+    fi
+
     local uninstall_script="$INSTALL_DIR/uninstall_conda_env.sh"
     
     cat > "$uninstall_script" << EOF
