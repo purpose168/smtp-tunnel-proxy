@@ -743,8 +743,8 @@ main() {
             else
                 # 激活 Conda 环境
                 if activate_conda_env; then
-                    # 创建 Conda 环境卸载脚本
-                    create_conda_uninstall_script
+                    # 标记需要创建 Conda 环境卸载脚本
+                    CREATE_CONDA_UNINSTALL_SCRIPT=true
                 else
                     print_warn "无法激活 Conda 环境,将使用系统 Python"
                 fi
@@ -767,6 +767,11 @@ main() {
 
     install_systemd_service
     create_uninstall_script
+    
+    # 在目录创建后创建 Conda 环境卸载脚本
+    if [ "$CREATE_CONDA_UNINSTALL_SCRIPT" = true ]; then
+        create_conda_uninstall_script
+    fi
     interactive_setup
     print_summary
 }
