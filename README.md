@@ -73,11 +73,17 @@ flowchart TD
 
 示例: `myserver.duckdns.org` → `203.0.113.50` (您的 VPS IP)
 
-### 步骤 2️⃣: 运行安装程序
+### 步骤 2️⃣: 运行安装程序（中文版）
 
+#### 安装程序（中文版）
 ```bash
 curl -sSL https://raw.githubusercontent.com/purpose168/smtp-tunnel-proxy/main/install.sh | sudo bash
 ```
+#### 安装程序（英文版）
+```bash
+curl -sSL https://raw.githubusercontent.com/x011/smtp-tunnel-proxy/main/install.sh | sudo bash
+```
+
 
 安装程序将:
 1. 📥 下载并安装所有内容
