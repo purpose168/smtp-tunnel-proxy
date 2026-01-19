@@ -683,6 +683,19 @@ class UserConfig:
 
 
 @dataclass
+class StealthConfig:
+    """隐蔽/流量整形配置"""
+    min_delay_ms: int = 50  # 最小延迟（毫秒）
+    max_delay_ms: int = 500  # 最大延迟（毫秒）
+    pad_to_sizes: List[int] = None  # 填充大小列表
+    dummy_message_probability: float = 0.1  # 虚假消息概率
+
+    def __post_init__(self):
+        if self.pad_to_sizes is None:
+            self.pad_to_sizes = [4096, 8192, 16384]
+
+
+@dataclass
 class ServerConfig:
     """服务端配置"""
     host: str = '0.0.0.0'  # 监听地址
@@ -780,19 +793,6 @@ class ClientConfig:
     socks_host: str = '127.0.0.1'  # SOCKS 代理地址
     username: str = ''  # 多用户认证的用户名
     secret: str = ''  # 密钥
-
-
-@dataclass
-class StealthConfig:
-    """隐蔽/流量整形配置"""
-    min_delay_ms: int = 50  # 最小延迟（毫秒）
-    max_delay_ms: int = 500  # 最大延迟（毫秒）
-    pad_to_sizes: List[int] = None  # 填充大小列表
-    dummy_message_probability: float = 0.1  # 虚假消息概率
-
-    def __post_init__(self):
-        if self.pad_to_sizes is None:
-            self.pad_to_sizes = [4096, 8192, 16384]
 
 
 def load_config(path: str) -> dict:
