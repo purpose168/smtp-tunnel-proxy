@@ -23,6 +23,11 @@ INSTALL_DIR="/opt/smtp-tunnel"
 CONFIG_DIR="/etc/smtp-tunnel"
 BIN_DIR="/usr/local/bin"
 
+# Conda 环境配置
+CONDA_ENV_NAME="smtp-tunnel-py312"  # Conda 虚拟环境名称
+CONDA_INSTALL_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+CONDA_INSTALL_DIR="/opt/miniconda3"
+
 # 需要下载的文件
 PYTHON_FILES="server.py client.py common.py generate_certs.py"
 SCRIPTS="smtp-tunnel-adduser smtp-tunnel-deluser smtp-tunnel-listusers smtp-tunnel-update"
@@ -106,6 +111,207 @@ install_dependencies() {
         print_error "未找到 Python 3。请安装 Python 3.8+"
         exit 1
     fi
+}
+
+# 检查 Conda 是否已正确安装
+check_conda() {
+    print_step "正在检查 Conda 安装状态..."
+
+    # 检查是否已安装 Conda (通过检测 conda 命令)
+    if command -v conda &> /dev/null; then
+        print_info "Conda 已安装: $(conda --version)"
+        return 0
+    fi
+
+    # 检查 Conda 是否存在于默认安装路径
+    if [ -f "$CONDA_INSTALL_DIR/bin/conda" ]; then
+        print_info "检测到 Conda 安装于: $CONDA_INSTALL_DIR"
+        # 将 Conda 添加到 PATH 以便后续使用
+        export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
+        source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+        print_info "Conda 环境变量已配置"
+        return 0
+    fi
+
+    print_warn "未检测到 Conda 安装"
+    return 1
+}
+
+# 安装 Conda (Miniconda)
+install_conda() {
+    print_step "正在安装 Miniconda..."
+
+    # 检查是否以 root 身份运行,决定安装位置
+    if [ "$EUID" -eq 0 ]; then
+        # root 用户安装到系统目录
+        local install_script="/tmp/miniconda_install.sh"
+        local conda_bin="$CONDA_INSTALL_DIR/bin/conda"
+    else
+        # 普通用户安装到用户主目录
+        local install_script="$HOME/miniconda_install.sh"
+        local CONDA_INSTALL_DIR="$HOME/miniconda3"
+        local conda_bin="$HOME/miniconda3/bin/conda"
+    fi
+
+    # 下载 Miniconda 安装脚本
+    print_info "正在下载 Miniconda 安装脚本..."
+    if ! curl -sSL -f "$CONDA_INSTALL_URL" -o "$install_script" 2>/dev/null; then
+        print_error "下载 Miniconda 安装脚本失败"
+        return 1
+    fi
+
+    # 运行安装脚本 (静默模式)
+    print_info "正在运行安装程序..."
+    if [ "$EUID" -eq 0 ]; then
+        # root 用户: 安装到系统目录,不初始化 shell
+        bash "$install_script" -b -p "$CONDA_INSTALL_DIR" 2>/dev/null
+    else
+        # 普通用户: 安装到用户目录
+        bash "$install_script" -b -p "$CONDA_INSTALL_DIR" 2>/dev/null
+    fi
+
+    # 检查安装结果
+    if [ -f "$conda_bin" ]; then
+        print_info "Conda 安装成功"
+        # 配置环境变量
+        export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
+        source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+        return 0
+    else
+        print_error "Conda 安装失败"
+        rm -f "$install_script"
+        return 1
+    fi
+}
+
+# 创建 Python 3.12 Conda 虚拟环境
+create_conda_env() {
+    print_step "正在创建 Conda 虚拟环境: $CONDA_ENV_NAME (Python 3.12)..."
+
+    # 确保 Conda 命令可用
+    if ! command -v conda &> /dev/null; then
+        if [ -f "$CONDA_INSTALL_DIR/bin/conda" ]; then
+            export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
+            source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+        else
+            print_error "Conda 命令不可用,请先安装 Conda"
+            return 1
+        fi
+    fi
+
+    # 检查环境是否已存在
+    if conda env list | grep -q "^$CONDA_ENV_NAME "; then
+        print_info "环境 '$CONDA_ENV_NAME' 已存在"
+        return 0
+    fi
+
+    # 创建新环境
+    print_info "正在创建环境,这可能需要几分钟..."
+    if conda create -n "$CONDA_ENV_NAME" python=3.12 -y 2>&1 | grep -v "^#" | grep -v "^$" | while read line; do
+        # 显示创建进度
+        if echo "$line" | grep -qE "(Solving|Fetching|Linking|done)"; then
+            print_info "  $line"
+        fi
+    done; then
+        print_info "环境 '$CONDA_ENV_NAME' 创建成功"
+        return 0
+    else
+        print_error "环境 '$CONDA_ENV_NAME' 创建失败"
+        return 1
+    fi
+}
+
+# 激活 Conda 虚拟环境并配置环境变量
+activate_conda_env() {
+    print_step "正在激活 Conda 虚拟环境: $CONDA_ENV_NAME..."
+
+    # 确保 Conda 命令可用
+    if ! command -v conda &> /dev/null; then
+        if [ -f "$CONDA_INSTALL_DIR/bin/conda" ]; then
+            export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
+            source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+        else
+            print_error "无法找到 Conda 安装"
+            return 1
+        fi
+    fi
+
+    # 检查环境是否存在
+    if ! conda env list | grep -q "^$CONDA_ENV_NAME "; then
+        print_error "环境 '$CONDA_ENV_NAME' 不存在,请先创建"
+        return 1
+    fi
+
+    # 激活环境 (在当前 shell 中生效)
+    eval "$(conda shell.bash hook)"
+    conda activate "$CONDA_ENV_NAME"
+
+    # 验证 Python 版本
+    if command -v python &> /dev/null; then
+        local py_version=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+        if [ "$py_version" = "3.12" ]; then
+            print_info "已激活 Python $py_version 环境"
+            print_info "Python 路径: $(which python)"
+            return 0
+        else
+            print_warn "Python 版本不是 3.12: $py_version"
+            return 1
+        fi
+    else
+        print_error "无法找到 Python 解释器"
+        return 1
+    fi
+}
+
+# 使用 Conda 环境中的 Python 安装包
+conda_install_packages() {
+    print_step "正在使用 Conda 环境安装 Python 包..."
+
+    # 确保环境已激活
+    if ! command -v python &> /dev/null || ! python -c 'import sys; sys.exit(0 if sys.version_info.major == 3 and sys.version_info.minor == 12 else 1)' 2>/dev/null; then
+        print_error "Conda 环境未正确激活,请确保已激活 $CONDA_ENV_NAME"
+        return 1
+    fi
+
+    # 使用 pip 安装依赖 (Conda 环境中的 pip)
+    local pip_path=$(which pip 2>/dev/null || echo "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME/bin/pip")
+    
+    if [ -f "$pip_path" ]; then
+        print_info "使用 pip: $pip_path"
+        "$pip_path" install -q -r "$INSTALL_DIR/requirements.txt" 2>/dev/null || \
+        "$pip_path" install -r "$INSTALL_DIR/requirements.txt"
+        print_info "Python 包已安装"
+        return 0
+    else
+        print_error "未找到 pip 路径"
+        return 1
+    fi
+}
+
+# 创建 Conda 环境卸载脚本
+create_conda_uninstall_script() {
+    local uninstall_script="$INSTALL_DIR/uninstall_conda_env.sh"
+    
+    cat > "$uninstall_script" << EOF
+#!/bin/bash
+# Conda 虚拟环境卸载脚本
+
+echo "正在卸载 Conda 虚拟环境: $CONDA_ENV_NAME..."
+
+# 检查 Conda 是否可用
+if command -v conda &> /dev/null; then
+    conda env remove -n "$CONDA_ENV_NAME" -y
+    echo "环境 '$CONDA_ENV_NAME' 已删除"
+else
+    echo "Conda 不可用,无法删除环境"
+fi
+
+echo ""
+echo "如需完全卸载 Conda,请手动删除: $CONDA_INSTALL_DIR"
+EOF
+
+    chmod +x "$uninstall_script"
+    print_info "已创建: $uninstall_script"
 }
 
 # 创建目录
@@ -431,9 +637,60 @@ main() {
     check_root
     detect_os
     install_dependencies
+
+    # Conda 虚拟环境设置 (可选功能)
+    echo ""
+    echo -e "${CYAN}[?]${NC} 是否使用 Conda 虚拟环境运行服务端? [Y/n]"
+    echo "    提示: 使用 Conda 可以确保 Python 3.12 环境隔离,避免依赖冲突"
+    read -p "    " USE_CONDA < /dev/tty
+
+    if [ -z "$USE_CONDA" ] || [ "$USE_CONDA" = "y" ] || [ "$USE_CONDA" = "Y" ]; then
+        print_info "将使用 Conda 管理 Python 环境"
+
+        # 检查 Conda 是否已安装
+        if ! check_conda; then
+            echo ""
+            print_ask "Conda 未安装,是否自动安装 Miniconda? [Y/n]: "
+            read -p "    " INSTALL_CONDA < /dev/tty
+
+            if [ -z "$INSTALL_CONDA" ] || [ "$INSTALL_CONDA" = "y" ] || [ "$INSTALL_CONDA" = "Y" ]; then
+                if ! install_conda; then
+                    print_warn "Conda 安装失败,将使用系统 Python 继续安装"
+                fi
+            else
+                print_warn "跳过 Conda 安装,将使用系统 Python"
+            fi
+        fi
+
+        # 创建 Conda 环境
+        if check_conda 2>/dev/null; then
+            if ! create_conda_env; then
+                print_warn "Conda 环境创建失败,将使用系统 Python"
+            else
+                # 激活 Conda 环境
+                if activate_conda_env; then
+                    # 创建 Conda 环境卸载脚本
+                    create_conda_uninstall_script
+                else
+                    print_warn "无法激活 Conda 环境,将使用系统 Python"
+                fi
+            fi
+        fi
+    else
+        print_info "将使用系统 Python 环境"
+    fi
+
     create_directories
     install_files
-    install_python_packages
+
+    # 根据是否使用 Conda 环境选择不同的包安装方式
+    if command -v python &> /dev/null && python -c 'import sys; sys.exit(0 if sys.version_info.major == 3 and sys.version_info.minor == 12 else 1)' 2>/dev/null; then
+        print_info "检测到 Python 3.12 环境,使用 Conda 环境安装包"
+        conda_install_packages
+    else
+        install_python_packages
+    fi
+
     install_systemd_service
     create_uninstall_script
     interactive_setup
