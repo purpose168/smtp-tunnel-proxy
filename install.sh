@@ -113,25 +113,39 @@ install_dependencies() {
     fi
 }
 
-# 检查 Conda 是否已正确安装
+# 检查 Conda 是否已正确安装,并设置 CONDA_INSTALL_DIR
 check_conda() {
     print_step "正在检查 Conda 安装状态..."
 
     # 检查是否已安装 Conda (通过检测 conda 命令)
     if command -v conda &> /dev/null; then
+        # 动态获取 Conda 的安装目录
+        local conda_path=$(which conda)
+        CONDA_INSTALL_DIR=$(dirname "$(dirname "$conda_path")")
         print_info "Conda 已安装: $(conda --version)"
+        print_info "Conda 安装目录: $CONDA_INSTALL_DIR"
         return 0
     fi
 
-    # 检查 Conda 是否存在于默认安装路径
-    if [ -f "$CONDA_INSTALL_DIR/bin/conda" ]; then
-        print_info "检测到 Conda 安装于: $CONDA_INSTALL_DIR"
-        # 将 Conda 添加到 PATH 以便后续使用
-        export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
-        source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
-        print_info "Conda 环境变量已配置"
-        return 0
-    fi
+    # 搜索常见的 Conda 安装位置
+    local conda_locations=(
+        "$HOME/anaconda3"
+        "$HOME/miniconda3"
+        "/opt/anaconda3"
+        "/opt/miniconda3"
+        "/usr/local/anaconda3"
+        "/usr/local/miniconda3"
+    )
+
+    for location in "${conda_locations[@]}"; do
+        if [ -f "$location/bin/conda" ]; then
+            CONDA_INSTALL_DIR="$location"
+            export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
+            source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
+            print_info "检测到 Conda 安装于: $CONDA_INSTALL_DIR"
+            return 0
+        fi
+    done
 
     print_warn "未检测到 Conda 安装"
     return 1
@@ -145,13 +159,14 @@ install_conda() {
     if [ "$EUID" -eq 0 ]; then
         # root 用户安装到系统目录
         local install_script="/tmp/miniconda_install.sh"
-        local conda_bin="$CONDA_INSTALL_DIR/bin/conda"
+        CONDA_INSTALL_DIR="/opt/miniconda3"
     else
         # 普通用户安装到用户主目录
         local install_script="$HOME/miniconda_install.sh"
-        local CONDA_INSTALL_DIR="$HOME/miniconda3"
-        local conda_bin="$HOME/miniconda3/bin/conda"
+        CONDA_INSTALL_DIR="$HOME/miniconda3"
     fi
+
+    local conda_bin="$CONDA_INSTALL_DIR/bin/conda"
 
     # 下载 Miniconda 安装脚本
     print_info "正在下载 Miniconda 安装脚本..."
@@ -162,17 +177,11 @@ install_conda() {
 
     # 运行安装脚本 (静默模式)
     print_info "正在运行安装程序..."
-    if [ "$EUID" -eq 0 ]; then
-        # root 用户: 安装到系统目录,不初始化 shell
-        bash "$install_script" -b -p "$CONDA_INSTALL_DIR" 2>/dev/null
-    else
-        # 普通用户: 安装到用户目录
-        bash "$install_script" -b -p "$CONDA_INSTALL_DIR" 2>/dev/null
-    fi
+    bash "$install_script" -b -p "$CONDA_INSTALL_DIR" 2>/dev/null
 
     # 检查安装结果
     if [ -f "$conda_bin" ]; then
-        print_info "Conda 安装成功"
+        print_info "Conda 安装成功: $CONDA_INSTALL_DIR"
         # 配置环境变量
         export PATH="$CONDA_INSTALL_DIR/bin:$PATH"
         source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh" 2>/dev/null || true
@@ -236,8 +245,9 @@ activate_conda_env() {
         fi
     fi
 
-    # 检查环境是否存在
-    if ! conda env list | grep -q "^$CONDA_ENV_NAME "; then
+    # 检查环境是否存在 (使用更可靠的目录检查方式)
+    local conda_env_dir="$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME"
+    if [ ! -d "$conda_env_dir" ]; then
         print_error "环境 '$CONDA_ENV_NAME' 不存在,请先创建"
         return 1
     fi
