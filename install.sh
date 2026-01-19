@@ -255,16 +255,17 @@ create_conda_env() {
     
     # 检查是否是服务条款问题
     if echo "$create_output" | grep -qi "Terms of Service"; then
-        print_warn "检测到 Anaconda 服务条款限制,正在切换到 conda-forge..."
+        print_warn "检测到 Anaconda 服务条款限制,正在自动接受服务条款..."
         
-        # 添加 conda-forge 通道并禁用 defaults
-        conda config --add channels conda-forge 2>/dev/null || true
-        conda config --set channel_priority strict 2>/dev/null || true
+        # 自动接受 Anaconda 服务条款
+        print_info "正在接受 Anaconda 服务条款..."
+        conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
+        conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
         
         # 再次尝试创建环境
-        print_info "正在使用 conda-forge 通道创建环境..."
-        if create_output=$(conda create -n "$CONDA_ENV_NAME" python=3.12 -c conda-forge -y 2>&1); then
-            print_info "环境 '$CONDA_ENV_NAME' 创建成功 (使用 conda-forge)"
+        print_info "正在重新创建环境..."
+        if create_output=$(conda create -n "$CONDA_ENV_NAME" python=3.12 -y 2>&1); then
+            print_info "环境 '$CONDA_ENV_NAME' 创建成功"
             if [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
                 print_info "环境目录: $CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME"
                 return 0
