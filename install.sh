@@ -474,7 +474,50 @@ install_python_packages() {
 install_systemd_service() {
     print_step "正在安装 systemd 服务..."
 
-    cat > /etc/systemd/system/smtp-tunnel.service << EOF
+    # 检测是否使用 Conda 环境
+    local use_conda=false
+    local python_path="/usr/bin/python3"
+    local env_path=""
+
+    # 检查 Conda 环境是否可用
+    if command -v conda &> /dev/null || declare -f conda > /dev/null 2>&1; then
+        # 重新检查并设置 CONDA_INSTALL_DIR
+        check_conda 2>/dev/null
+        
+        # 检查 Conda 环境是否存在
+        if conda env list 2>/dev/null | grep -q "^$CONDA_ENV_NAME " || [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
+            use_conda=true
+            python_path="$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME/bin/python"
+            env_path="$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME"
+            print_info "检测到 Conda 环境: $CONDA_ENV_NAME"
+            print_info "使用 Python: $python_path"
+        fi
+    fi
+
+    # 根据是否使用 Conda 环境生成不同的服务配置
+    if [ "$use_conda" = true ]; then
+        cat > /etc/systemd/system/smtp-tunnel.service << EOF
+[Unit]
+Description=SMTP Tunnel Proxy Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+Environment="PATH=$env_path/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="VIRTUAL_ENV=$env_path"
+ExecStart=$python_path $INSTALL_DIR/server.py -c $CONFIG_DIR/config.yaml
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    else
+        cat > /etc/systemd/system/smtp-tunnel.service << EOF
 [Unit]
 Description=SMTP Tunnel Proxy Server
 After=network.target
@@ -492,6 +535,7 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+    fi
 
     systemctl daemon-reload
     print_info "服务已安装: smtp-tunnel.service"
@@ -512,6 +556,13 @@ rm -f /etc/systemd/system/smtp-tunnel.service
 rm -f /usr/local/bin/smtp-tunnel-adduser
 rm -f /usr/local/bin/smtp-tunnel-deluser
 rm -f /usr/local/bin/smtp-tunnel-listusers
+
+# 检查是否存在 Conda 环境卸载脚本
+if [ -f "$INSTALL_DIR/uninstall_conda_env.sh" ]; then
+    echo "正在卸载 Conda 虚拟环境..."
+    bash "$INSTALL_DIR/uninstall_conda_env.sh"
+fi
+
 rm -rf /opt/smtp-tunnel
 
 echo ""
@@ -592,15 +643,25 @@ EOF
     echo ""
     print_step "正在为 $DOMAIN_NAME 生成 TLS 证书..."
 
+    # 检测是否使用 Conda 环境
+    local python_cmd="python3"
+    if command -v conda &> /dev/null || declare -f conda > /dev/null 2>&1; then
+        check_conda 2>/dev/null
+        if conda env list 2>/dev/null | grep -q "^$CONDA_ENV_NAME " || [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
+            python_cmd="$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME/bin/python"
+            print_info "使用 Conda 环境 Python: $python_cmd"
+        fi
+    fi
+
     cd "$INSTALL_DIR"
-    if python3 generate_certs.py --hostname "$DOMAIN_NAME" --output-dir "$CONFIG_DIR"; then
+    if $python_cmd generate_certs.py --hostname "$DOMAIN_NAME" --output-dir "$CONFIG_DIR"; then
         print_info "证书生成成功"
         # 创建符号链接以便 adduser 脚本可以找到 ca.crt
         ln -sf "$CONFIG_DIR/ca.crt" "$INSTALL_DIR/ca.crt"
     else
         print_error "证书生成失败。您可以手动尝试:"
         echo "    cd $INSTALL_DIR"
-        echo "    python3 generate_certs.py --hostname $DOMAIN_NAME --output-dir $CONFIG_DIR"
+        echo "    $python_cmd generate_certs.py --hostname $DOMAIN_NAME --output-dir $CONFIG_DIR"
     fi
 
     # 询问是否创建第一个用户
@@ -618,7 +679,7 @@ EOF
             print_step "正在创建用户 '$FIRST_USER'..."
 
             cd "$INSTALL_DIR"
-            if python3 smtp-tunnel-adduser "$FIRST_USER"; then
+            if $python_cmd smtp-tunnel-adduser "$FIRST_USER"; then
                 echo ""
                 print_info "用户 '$FIRST_USER' 创建成功!"
                 print_info "客户端包: $INSTALL_DIR/${FIRST_USER}.zip"
