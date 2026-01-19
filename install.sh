@@ -240,9 +240,10 @@ create_conda_env() {
     # 创建新环境
     print_info "正在创建环境,这可能需要几分钟..."
     local create_output
+    
+    # 首先尝试默认通道
     if create_output=$(conda create -n "$CONDA_ENV_NAME" python=3.12 -y 2>&1); then
         print_info "环境 '$CONDA_ENV_NAME' 创建成功"
-        # 验证环境确实被创建
         if [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
             print_info "环境目录: $CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME"
             return 0
@@ -250,11 +251,34 @@ create_conda_env() {
             print_warn "环境创建命令成功,但目录未找到"
             return 1
         fi
-    else
-        print_error "环境 '$CONDA_ENV_NAME' 创建失败"
-        echo "$create_output" | head -n 5
-        return 1
     fi
+    
+    # 检查是否是服务条款问题
+    if echo "$create_output" | grep -qi "Terms of Service"; then
+        print_warn "检测到 Anaconda 服务条款限制,正在切换到 conda-forge..."
+        
+        # 添加 conda-forge 通道并禁用 defaults
+        conda config --add channels conda-forge 2>/dev/null || true
+        conda config --set channel_priority strict 2>/dev/null || true
+        
+        # 再次尝试创建环境
+        print_info "正在使用 conda-forge 通道创建环境..."
+        if create_output=$(conda create -n "$CONDA_ENV_NAME" python=3.12 -c conda-forge -y 2>&1); then
+            print_info "环境 '$CONDA_ENV_NAME' 创建成功 (使用 conda-forge)"
+            if [ -d "$CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME" ]; then
+                print_info "环境目录: $CONDA_INSTALL_DIR/envs/$CONDA_ENV_NAME"
+                return 0
+            else
+                print_warn "环境创建命令成功,但目录未找到"
+                return 1
+            fi
+        fi
+    fi
+    
+    # 所有尝试都失败
+    print_error "环境 '$CONDA_ENV_NAME' 创建失败"
+    echo "$create_output" | head -n 10
+    return 1
 }
 
 # 激活 Conda 虚拟环境并配置环境变量
