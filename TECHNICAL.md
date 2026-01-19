@@ -157,30 +157,34 @@ sequenceDiagram
 
 ### 🚀 新方法: 协议升级
 
-```mermaid
-graph TD
-    subgraph Handshake["HANDSHAKE PHASE One time only"]
-        A[EHLO → STARTTLS → TLS → EHLO → AUTH → BINARY]
-        B["Time: ~200-500ms network latency dependent"]
-    end
-
-    subgraph Streaming["STREAMING PHASE Rest of session"]
-        C[Frame Format]
-        D[┌─────────┬────────────┬────────────┬─────────────┐]
-        E[│  Type  1 byte │ Channel ID 2 bytes │   Length  2 bytes │   Payload N bytes   │]
-        G[└─────────┴────────────┴────────────┴─────────────┘]
-        H[Features]
-        I["• Full duplex - send and receive simultaneously"]
-        J["• No waiting for responses"]
-        K["• 5 bytes overhead per frame vs hundreds for SMTP"]
-        L["• Raw binary - no base64 encoding"]
-        M["• Speed limited only by network bandwidth"]
-    end
-
-    Handshake --> Streaming
-
-    style Handshake fill:#ffebcc,stroke:#333,stroke-width:2px
-    style Streaming fill:#e6f7ff,stroke:#333,stroke-width:2px
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    握手阶段                                  │
+│                    (仅一次)                                  │
+├─────────────────────────────────────────────────────────────┤
+│  EHLO → STARTTLS → TLS → EHLO → AUTH → BINARY               │
+│                                                             │
+│  时间: ~200-500ms (取决于网络延迟)                            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    流式传输阶段                              │
+│                    (会话的其余部分)                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────┬────────────┬────────────┬─────────────┐        │
+│  │  类型   │ 通道 ID     │   长度     │   负载       │        │
+│  │ 1 字节  │  2 字节     │  2 字节    │  N 字节      │        │
+│  └─────────┴────────────┴────────────┴─────────────┘        │
+│                                                             │
+│  - 全双工 - 同时发送和接收                                    │
+│  - 无需等待响应                                              │  
+│  - 每帧 5 字节开销(对比 SMTP 的数百字节)                       │ 
+│  - 原始二进制 - 无 base64 编码                                │
+│  - 仅受网络带宽限制的速度                                     │  
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### 📊 性能比较
