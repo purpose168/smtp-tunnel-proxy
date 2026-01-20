@@ -151,6 +151,10 @@ class TunnelClient:
         # 写入锁 - 防止并发写入导致数据混乱
         self.write_lock = asyncio.Lock()
 
+        # 添加资源监控
+        self.max_channels = 1000  # 最大通道数
+        self.max_buffer_size = 10 * 1024 * 1024  # 最大缓冲区大小: 10MB
+
     async def connect(self) -> bool:
         """
         连接到服务器并完成 SMTP 握手,然后切换到二进制模式
@@ -376,11 +380,22 @@ class TunnelClient:
                 buffer += chunk
                 logger.debug(f"接收到数据块: {len(chunk)} 字节")
 
+                # 检查缓冲区大小
+                if len(buffer) > self.max_buffer_size:
+                    logger.error(f"缓冲区大小超过限制: {len(buffer)} > {self.max_buffer_size}")
+                    logger.error("可能收到恶意数据或协议错误，断开连接")
+                    break
+
                 # 处理缓冲区中的完整帧
                 while len(buffer) >= FRAME_HEADER_SIZE:
                     # 解析帧头: 帧类型(1B) + 通道ID(2B) + 载荷长度(2B)
                     frame_type, channel_id, payload_len = struct.unpack('>BHH', buffer[:5])
                     total_len = FRAME_HEADER_SIZE + payload_len
+
+                    # 检查载荷长度是否合理
+                    if payload_len > self.max_buffer_size:
+                        logger.error(f"载荷长度过大: {payload_len} > {self.max_buffer_size}")
+                        break
 
                     # 如果数据不足一个完整帧,等待更多数据
                     if len(buffer) < total_len:
@@ -490,6 +505,11 @@ class TunnelClient:
             logger.warning("未连接到服务器,无法打开通道")
             return 0, False
 
+        # 检查通道数量限制
+        if len(self.channels) >= self.max_channels:
+            logger.error(f"通道数量超过限制: {len(self.channels)} >= {self.max_channels}")
+            return 0, False
+
         # 分配新的通道ID
         async with self.channel_lock:
             channel_id = self.next_channel_id
@@ -509,11 +529,14 @@ class TunnelClient:
             logger.debug(f"已发送通道 {channel_id} 连接请求")
         except Exception as e:
             logger.error(f"发送通道 {channel_id} 连接请求失败: {e}")
+            # 清理事件和结果
+            self.connect_events.pop(channel_id, None)
+            self.connect_results.pop(channel_id, None)
             return channel_id, False
 
-        # 等待服务器响应,超时时间 30 秒
+        # 减少超时时间: 30 秒 -> 10 秒
         try:
-            await asyncio.wait_for(event.wait(), timeout=30.0)
+            await asyncio.wait_for(event.wait(), timeout=10.0)
             success = self.connect_results.get(channel_id, False)
             if success:
                 logger.info(f"通道 {channel_id} 打开成功")
@@ -592,12 +615,18 @@ class TunnelClient:
             except Exception as e:
                 logger.error(f"关闭与服务器的连接失败: {e}")
         
+        # 清理所有事件和结果
+        event_count = len(self.connect_events)
+        result_count = len(self.connect_results)
+        if event_count > 0 or result_count > 0:
+            logger.warning(f"清理 {event_count} 个连接事件和 {result_count} 个连接结果")
+        self.connect_events.clear()
+        self.connect_results.clear()
+        
         # 清理所有资源
         self.reader = None
         self.writer = None
         self.channels.clear()
-        self.connect_events.clear()
-        self.connect_results.clear()
         logger.info("连接断开,所有资源已清理")
 
 
@@ -625,6 +654,10 @@ class SOCKS5Server:
         self.tunnel = tunnel
         self.host = host
         self.port = port
+        # 添加连接速率限制
+        self.max_connections = 100  # 最大并发连接数
+        self.current_connections = 0
+        self.connection_semaphore = asyncio.Semaphore(self.max_connections)
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """
@@ -640,116 +673,143 @@ class SOCKS5Server:
             reader: 客户端读取流
             writer: 客户端写入流
         """
-        channel = None
-        try:
-            # 检查隧道是否已连接
-            if not self.tunnel.connected:
-                logger.warning("隧道未连接,拒绝客户端请求")
-                writer.close()
-                return
+        # 使用信号量限制并发连接
+        async with self.connection_semaphore:
+            self.current_connections += 1
+            logger.info(f"当前连接数: {self.current_connections}/{self.max_connections}")
 
-            # SOCKS5 握手 - 读取客户端版本和认证方法
-            logger.debug("开始 SOCKS5 握手")
-            data = await reader.read(2)
-            if len(data) < 2 or data[0] != SOCKS5.VERSION:
-                logger.warning(f"无效的 SOCKS5 版本: {data[0] if data else 'None'}")
-                return
-
-            nmethods = data[1]
-            logger.debug(f"客户端支持的认证方法数量: {nmethods}")
-            # 跳过认证方法列表
-            await reader.read(nmethods)
-
-            # 响应握手 - 选择无需认证
-            logger.debug("发送握手响应: 选择无需认证")
-            writer.write(bytes([SOCKS5.VERSION, SOCKS5.AUTH_NONE]))
-            await writer.drain()
-
-            # 读取连接请求
-            logger.debug("等待连接请求")
-            data = await reader.read(4)
-            if len(data) < 4:
-                logger.warning("未收到完整的连接请求")
-                return
-
-            version, cmd, _, atyp = data
-            logger.debug(f"连接请求: 版本={version}, 命令={cmd}, 地址类型={atyp}")
-
-            # 只支持 CONNECT 命令
-            if cmd != SOCKS5.CMD_CONNECT:
-                logger.warning(f"不支持的命令: {cmd}")
-                writer.write(bytes([SOCKS5.VERSION, 0x07, 0, 1, 0, 0, 0, 0, 0, 0]))
-                await writer.drain()
-                return
-
-            # 解析目标地址
-            if atyp == SOCKS5.ATYP_IPV4:
-                # IPv4 地址 (4字节)
-                addr_data = await reader.read(4)
-                host = socket.inet_ntoa(addr_data)
-                logger.debug(f"解析 IPv4 地址: {host}")
-            elif atyp == SOCKS5.ATYP_DOMAIN:
-                # 域名 (1字节长度 + 域名)
-                length = (await reader.read(1))[0]
-                host = (await reader.read(length)).decode()
-                logger.debug(f"解析域名: {host}")
-            elif atyp == SOCKS5.ATYP_IPV6:
-                # IPv6 地址 (16字节)
-                addr_data = await reader.read(16)
-                host = socket.inet_ntop(socket.AF_INET6, addr_data)
-                logger.debug(f"解析 IPv6 地址: {host}")
-            else:
-                logger.warning(f"不支持的地址类型: {atyp}")
-                return
-
-            # 读取目标端口 (2字节大端序)
-            port_data = await reader.read(2)
-            port = struct.unpack('>H', port_data)[0]
-
-            logger.info(f"SOCKS5 连接请求: {host}:{port}")
-
-            # 通过隧道打开连接
-            channel_id, success = await self.tunnel.open_channel(host, port)
-
-            if success:
-                # 连接成功 - 响应客户端
-                logger.info(f"SOCKS5 连接成功: {host}:{port} -> 通道 {channel_id}")
-                writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_SUCCESS, 0, 1, 0, 0, 0, 0, 0, 0]))
-                await writer.drain()
-
-                # 创建通道对象并注册
-                channel = Channel(
-                    channel_id=channel_id,
-                    reader=reader,
-                    writer=writer,
-                    host=host,
-                    port=port,
-                    connected=True
-                )
-                self.tunnel.channels[channel_id] = channel
-
-                # 启动数据转发循环
-                logger.debug(f"启动通道 {channel_id} 数据转发循环")
-                await self._forward_loop(channel)
-            else:
-                # 连接失败 - 通知客户端
-                logger.warning(f"SOCKS5 连接失败: {host}:{port}")
-                writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_FAILURE, 0, 1, 0, 0, 0, 0, 0, 0]))
-                await writer.drain()
-
-        except Exception as e:
-            logger.debug(f"SOCKS 错误: {e}")
-        finally:
-            # 清理: 通知服务器关闭通道,关闭客户端连接
-            if channel:
-                logger.debug(f"清理通道 {channel.channel_id}")
-                await self.tunnel.close_channel_remote(channel.channel_id)
-                await self.tunnel._close_channel(channel)
+            channel = None
             try:
+                # 检查隧道是否已连接
+                if not self.tunnel.connected:
+                    logger.warning("隧道未连接,拒绝客户端请求")
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
+                # SOCKS5 握手 - 读取客户端版本和认证方法
+                logger.debug("开始 SOCKS5 握手")
+                # 添加超时: 10 秒
+                data = await asyncio.wait_for(reader.read(2), timeout=10.0)
+                if len(data) < 2 or data[0] != SOCKS5.VERSION:
+                    logger.warning(f"无效的 SOCKS5 版本: {data[0] if data else 'None'}")
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
+                nmethods = data[1]
+                logger.debug(f"客户端支持的认证方法数量: {nmethods}")
+                # 添加超时: 10 秒
+                await asyncio.wait_for(reader.read(nmethods), timeout=10.0)
+
+                # 响应握手 - 选择无需认证
+                logger.debug("发送握手响应: 选择无需认证")
+                writer.write(bytes([SOCKS5.VERSION, SOCKS5.AUTH_NONE]))
+                await writer.drain()
+
+                # 读取连接请求
+                logger.debug("等待连接请求")
+                # 添加超时: 10 秒
+                data = await asyncio.wait_for(reader.read(4), timeout=10.0)
+                if len(data) < 4:
+                    logger.warning("未收到完整的连接请求")
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
+                version, cmd, _, atyp = data
+                logger.debug(f"连接请求: 版本={version}, 命令={cmd}, 地址类型={atyp}")
+
+                # 只支持 CONNECT 命令
+                if cmd != SOCKS5.CMD_CONNECT:
+                    logger.warning(f"不支持的命令: {cmd}")
+                    writer.write(bytes([SOCKS5.VERSION, 0x07, 0, 1, 0, 0, 0, 0, 0, 0]))
+                    await writer.drain()
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
+                # 解析目标地址
+                if atyp == SOCKS5.ATYP_IPV4:
+                    # IPv4 地址 (4字节)
+                    addr_data = await reader.read(4)
+                    host = socket.inet_ntoa(addr_data)
+                    logger.debug(f"解析 IPv4 地址: {host}")
+                elif atyp == SOCKS5.ATYP_DOMAIN:
+                    # 域名 (1字节长度 + 域名)
+                    # 添加超时: 10 秒
+                    length = (await asyncio.wait_for(reader.read(1), timeout=10.0))[0]
+                    # 添加超时: 10 秒
+                    host = (await asyncio.wait_for(reader.read(length), timeout=10.0)).decode()
+                    logger.debug(f"解析域名: {host}")
+                elif atyp == SOCKS5.ATYP_IPV6:
+                    # IPv6 地址 (16字节)
+                    addr_data = await reader.read(16)
+                    host = socket.inet_ntop(socket.AF_INET6, addr_data)
+                    logger.debug(f"解析 IPv6 地址: {host}")
+                else:
+                    logger.warning(f"不支持的地址类型: {atyp}")
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
+                # 读取目标端口 (2字节大端序)
+                port_data = await reader.read(2)
+                port = struct.unpack('>H', port_data)[0]
+
+                logger.info(f"SOCKS5 连接请求: {host}:{port}")
+
+                # 通过隧道打开连接
+                channel_id, success = await self.tunnel.open_channel(host, port)
+
+                if success:
+                    # 连接成功 - 响应客户端
+                    logger.info(f"SOCKS5 连接成功: {host}:{port} -> 通道 {channel_id}")
+                    writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_SUCCESS, 0, 1, 0, 0, 0, 0, 0, 0]))
+                    await writer.drain()
+
+                    # 创建通道对象并注册
+                    channel = Channel(
+                        channel_id=channel_id,
+                        reader=reader,
+                        writer=writer,
+                        host=host,
+                        port=port,
+                        connected=True
+                    )
+                    self.tunnel.channels[channel_id] = channel
+
+                    # 启动数据转发循环
+                    logger.debug(f"启动通道 {channel_id} 数据转发循环")
+                    await self._forward_loop(channel)
+                else:
+                    # 连接失败 - 通知客户端
+                    logger.warning(f"SOCKS5 连接失败: {host}:{port}")
+                    writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_FAILURE, 0, 1, 0, 0, 0, 0, 0, 0]))
+                    await writer.drain()
+
+            except asyncio.TimeoutError:
+                logger.warning("SOCKS5 客户端操作超时")
                 writer.close()
                 await writer.wait_closed()
             except Exception as e:
-                logger.debug(f"关闭客户端连接失败: {e}")
+                logger.debug(f"SOCKS 错误: {e}")
+            finally:
+                # 清理: 通知服务器关闭通道,关闭客户端连接
+                if channel:
+                    logger.debug(f"清理通道 {channel.channel_id}")
+                    await self.tunnel.close_channel_remote(channel.channel_id)
+                    await self.tunnel._close_channel(channel)
+
+                # 确保在所有情况下都关闭 writer
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except Exception as e:
+                    logger.debug(f"关闭客户端连接失败: {e}")
+
+                self.current_connections -= 1
+                logger.debug(f"连接已关闭,当前连接数: {self.current_connections}/{self.max_connections}")
 
     async def _forward_loop(self, channel: Channel):
         """
@@ -807,6 +867,7 @@ async def run_client(config: ClientConfig, ca_cert: str):
     reconnect_delay = 2      # 重连尝试间隔 (秒)
     max_reconnect_delay = 30  # 最大重连延迟 (秒)
     current_delay = reconnect_delay
+    socks_server = None       # 跟踪 SOCKS5 服务器实例
 
     while True:
         logger.info("创建新的隧道客户端实例")
@@ -832,6 +893,12 @@ async def run_client(config: ClientConfig, ca_cert: str):
         socks = SOCKS5Server(tunnel, config.socks_host, config.socks_port)
 
         try:
+            # 关闭旧的服务器 (如果存在)
+            if socks_server:
+                logger.info("关闭旧的 SOCKS5 服务器")
+                socks_server.close()
+                await socks_server.wait_closed()
+
             # 创建 SOCKS 服务器但不阻塞
             socks_server = await asyncio.start_server(
                 socks.handle_client,
@@ -862,6 +929,11 @@ async def run_client(config: ClientConfig, ca_cert: str):
         except KeyboardInterrupt:
             logger.info("正在关闭...")
             await tunnel.disconnect()
+            # 关闭 SOCKS5 服务器
+            if socks_server:
+                logger.info("关闭 SOCKS5 服务器")
+                socks_server.close()
+                await socks_server.wait_closed()
             return 0
         except OSError as e:
             if "Address already in use" in str(e):
@@ -872,11 +944,14 @@ async def run_client(config: ClientConfig, ca_cert: str):
         finally:
             logger.info("清理资源")
             await tunnel.disconnect()
-            receiver_task.cancel()
-            try:
-                await receiver_task
-            except asyncio.CancelledError:
-                pass
+            
+            # 取消并等待接收器任务
+            if not receiver_task.done():
+                receiver_task.cancel()
+                try:
+                    await asyncio.wait_for(receiver_task, timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    logger.debug("接收器任务取消超时")
 
         # 连接丢失后不延迟 - 仅在连接失败时延迟 (在循环顶部处理)
 
