@@ -792,7 +792,7 @@ main() {
     create_backup_dirs "${backup_dir}"
     
     # 创建排除文件
-    create_exclude_file
+    #create_exclude_file
     
     # 执行相应的操作
     case ${action} in

@@ -63,3 +63,7 @@ htmlcov/
 # 其他
 *.pid
 *.lock
+
+release/
+proxy/
+
