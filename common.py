@@ -475,19 +475,48 @@ class SMTPMessageGenerator:
 
     # 发件人域名（常见服务提供商）
     DOMAINS = [
+        # 国际主流邮箱
         "gmail.com", "outlook.com", "yahoo.com", "protonmail.com",
-        "icloud.com", "mail.com", "hotmail.com"
+        "icloud.com", "mail.com", "hotmail.com", "aol.com",
+        "zoho.com", "yandex.com", "mail.ru", "gmx.com",
+        "fastmail.com", "tutanota.com", "hushmail.com",
+        
+        # 中国主流邮箱
+        "qq.com", "163.com", "126.com", "sina.com",
+        "sohu.com", "aliyun.com", "foxmail.com",
+       
+        # 其他常见邮箱
+        "163.net", "yeah.net", "vip.qq.com", "vip.163.com",
+        "vip.sina.com", "live.com", "msn.com", "passport.com"
     ]
 
     # 用于逼真发件人字段的名字
     FIRST_NAMES = [
-        "John", "Jane", "Michael", "Sarah", "David", "Emily",
-        "James", "Emma", "Robert", "Olivia", "William", "Sophia"
-    ]
-
-    LAST_NAMES = [
-        "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia",
-        "Miller", "Davis", "Rodriguez", "Martinez", "Wilson", "Anderson"
+        # 翻译后的英文名字
+        "约翰", "简", "迈克尔", "莎拉", "大卫", "艾米丽",
+        "詹姆斯", "艾玛", "罗伯特", "奥利维亚", "威廉", "索菲亚",
+        
+        # 中文名字
+        "张伟", "王芳", "李娜", "刘洋", "陈静",
+        "杨强", "赵敏", "黄磊", "周婷", "吴刚",
+        "徐明", "孙丽", "马超", "朱燕", "胡勇",
+        "郭华", "林涛", "何娟", "高峰", "罗杰",
+        "梁敏", "宋强", "郑芳", "谢明", "韩磊",
+        "唐静", "冯涛", "于强", "董芳", "萧然",
+        "程明", "曹丽", "袁强", "邓芳", "许杰",
+        "傅静", "沈涛", "曾强", "彭芳", "吕明",
+        "苏静", "卢强", "蒋芳", "蔡杰", "贾明",
+        "丁静", "魏涛", "薛芳", "叶强", "阎明",
+        "余静", "潘强", "杜芳", "戴杰", "夏明",
+        "钟华", "田敏", "任强", "姜芳", "范杰",
+        "方静", "石涛", "姚强", "谭芳", "廖明",
+        "邹静", "熊强", "金芳", "陆杰", "郝明",
+        "孔静", "白涛", "崔强", "康芳", "毛杰",
+        "邱静", "秦涛", "江强", "史芳", "顾明",
+        "侯静", "邵涛", "孟强", "龙芳", "万杰",
+        "段静", "雷涛", "钱强", "汤芳", "尹明",
+        "黎静", "易强", "常芳", "武杰", "乔明",
+        "贺静", "赖涛", "龚强", "文芳", "庞明"
     ]
 
     # 纯文本部分的邮件正文模板

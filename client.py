@@ -195,48 +195,70 @@ class TunnelClient:
             bool: 握手成功返回 True,失败返回 False
         """
         try:
+            logger.info("开始 SMTP 握手流程")
+            
             # 等待服务器欢迎消息 (220)
+            logger.debug("等待服务器欢迎消息 (220)")
             line = await self._read_line()
             if not line or not line.startswith('220'):
+                logger.error(f"未收到有效的欢迎消息: {line}")
                 return False
+            logger.info(f"收到服务器欢迎消息: {line}")
 
             # 发送 EHLO 命令
+            logger.debug("发送 EHLO 命令")
             await self._send_line("EHLO tunnel-client.local")
             if not await self._expect_250():
+                logger.error("EHLO 命令响应错误")
                 return False
+            logger.info("EHLO 命令成功")
 
             # 发送 STARTTLS 命令
+            logger.debug("发送 STARTTLS 命令")
             await self._send_line("STARTTLS")
             line = await self._read_line()
             if not line or not line.startswith('220'):
+                logger.error(f"STARTTLS 命令响应错误: {line}")
                 return False
+            logger.info(f"STARTTLS 命令成功: {line}")
 
             # 升级到 TLS 加密连接
+            logger.info("开始 TLS 升级")
             await self._upgrade_tls()
+            logger.info("TLS 升级完成")
 
             # TLS 升级后再次发送 EHLO
+            logger.debug("TLS 升级后再次发送 EHLO 命令")
             await self._send_line("EHLO tunnel-client.local")
             if not await self._expect_250():
+                logger.error("TLS 升级后 EHLO 命令响应错误")
                 return False
+            logger.info("TLS 升级后 EHLO 命令成功")
 
             # 进行身份认证
+            logger.info(f"开始身份认证,用户名: {self.config.username}")
             timestamp = int(time.time())
             crypto = TunnelCrypto(self.config.secret, is_server=False)
             token = crypto.generate_auth_token(timestamp, self.config.username)
 
+            logger.debug("发送 AUTH PLAIN 命令")
             await self._send_line(f"AUTH PLAIN {token}")
             line = await self._read_line()
             if not line or not line.startswith('235'):
                 logger.error(f"认证失败: {line}")
                 return False
+            logger.info(f"身份认证成功: {line}")
 
             # 切换到二进制模式
+            logger.debug("发送 BINARY 命令切换到二进制模式")
             await self._send_line("BINARY")
             line = await self._read_line()
             if not line or not line.startswith('299'):
                 logger.error(f"切换二进制模式失败: {line}")
                 return False
+            logger.info(f"成功切换到二进制模式: {line}")
 
+            logger.info("SMTP 握手流程完成")
             return True
 
         except Exception as e:
@@ -249,21 +271,26 @@ class TunnelClient:
         
         使用系统默认的 SSL 上下文,如果提供了 CA 证书则使用证书验证
         """
+        logger.debug("创建 SSL 上下文")
         ssl_context = ssl.create_default_context()
         if self.ca_cert and os.path.exists(self.ca_cert):
             # 使用自定义 CA 证书进行验证
+            logger.info(f"使用自定义 CA 证书: {self.ca_cert}")
             ssl_context.load_verify_locations(self.ca_cert)
         else:
             # 跳过主机名验证和证书验证 (用于自签名证书)
+            logger.warning("未提供 CA 证书或证书不存在,跳过证书验证")
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
 
         # 获取现有的传输层和协议对象
+        logger.debug("获取现有传输层和协议对象")
         transport = self.writer.transport
         protocol = self.writer._protocol
         loop = asyncio.get_event_loop()
 
         # 启动 TLS 握手,返回新的传输层
+        logger.debug("启动 TLS 握手")
         new_transport = await loop.start_tls(
             transport, protocol, ssl_context,
             server_hostname=self.config.server_host
@@ -281,6 +308,7 @@ class TunnelClient:
         参数:
             line: 要发送的文本,会自动添加 CRLF 换行符
         """
+        logger.debug(f"发送行: {line}")
         self.writer.write(f"{line}\r\n".encode())
         await self.writer.drain()
 
@@ -296,9 +324,13 @@ class TunnelClient:
             # 读取一行,超时时间 60 秒
             data = await asyncio.wait_for(self.reader.readline(), timeout=60.0)
             if not data:
+                logger.debug("读取行失败: 连接断开")
                 return None
-            return data.decode('utf-8', errors='replace').strip()
-        except:
+            line = data.decode('utf-8', errors='replace').strip()
+            logger.debug(f"读取行: {line}")
+            return line
+        except Exception as e:
+            logger.debug(f"读取行超时或错误: {e}")
             return None
 
     async def _expect_250(self) -> bool:
@@ -322,6 +354,7 @@ class TunnelClient:
 
     async def start_receiver(self):
         """启动后台任务,持续接收来自服务器的帧"""
+        logger.info("启动帧接收器")
         asyncio.create_task(self._receiver_loop())
 
     async def _receiver_loop(self):
@@ -331,14 +364,17 @@ class TunnelClient:
         持续读取二进制数据,解析帧,并根据帧类型进行相应处理
         """
         buffer = b''  # 接收缓冲区
+        logger.debug("帧接收器循环开始")
 
         while self.connected:
             try:
                 # 读取数据,超时时间 300 秒 (5分钟)
                 chunk = await asyncio.wait_for(self.reader.read(65536), timeout=300.0)
                 if not chunk:
+                    logger.info("服务器连接已断开")
                     break
                 buffer += chunk
+                logger.debug(f"接收到数据块: {len(chunk)} 字节")
 
                 # 处理缓冲区中的完整帧
                 while len(buffer) >= FRAME_HEADER_SIZE:
@@ -348,6 +384,7 @@ class TunnelClient:
 
                     # 如果数据不足一个完整帧,等待更多数据
                     if len(buffer) < total_len:
+                        logger.debug(f"数据不足一个完整帧,需要 {total_len} 字节,当前 {len(buffer)} 字节")
                         break
 
                     # 提取载荷并从缓冲区移除
@@ -355,16 +392,19 @@ class TunnelClient:
                     buffer = buffer[total_len:]
 
                     # 处理该帧
+                    logger.debug(f"处理帧: 类型={frame_type}, 通道ID={channel_id}, 载荷长度={payload_len}")
                     await self._handle_frame(frame_type, channel_id, payload)
 
             except asyncio.TimeoutError:
                 # 超时继续循环,保持连接活跃
+                logger.debug("接收数据超时,继续等待")
                 continue
             except Exception as e:
                 logger.error(f"接收器错误: {e}")
                 break
 
         # 连接断开
+        logger.info("帧接收器循环结束")
         self.connected = False
 
     async def _handle_frame(self, frame_type: int, channel_id: int, payload: bytes):
@@ -378,12 +418,14 @@ class TunnelClient:
         """
         if frame_type == FRAME_CONNECT_OK:
             # 连接成功 - 唤醒等待该通道连接的事件
+            logger.info(f"通道 {channel_id} 连接成功")
             if channel_id in self.connect_events:
                 self.connect_results[channel_id] = True
                 self.connect_events[channel_id].set()
 
         elif frame_type == FRAME_CONNECT_FAIL:
             # 连接失败 - 唤醒等待该通道连接的事件
+            logger.warning(f"通道 {channel_id} 连接失败")
             if channel_id in self.connect_events:
                 self.connect_results[channel_id] = False
                 self.connect_events[channel_id].set()
@@ -395,12 +437,15 @@ class TunnelClient:
                 try:
                     channel.writer.write(payload)
                     await channel.writer.drain()
-                except:
+                    logger.debug(f"通道 {channel_id} 转发数据: {len(payload)} 字节")
+                except Exception as e:
                     # 写入失败,关闭通道
+                    logger.error(f"通道 {channel_id} 写入数据失败: {e}")
                     await self._close_channel(channel)
 
         elif frame_type == FRAME_CLOSE:
             # 关闭帧 - 关闭对应的通道
+            logger.info(f"收到通道 {channel_id} 关闭帧")
             channel = self.channels.get(channel_id)
             if channel:
                 await self._close_channel(channel)
@@ -415,14 +460,17 @@ class TunnelClient:
             payload: 载荷数据
         """
         if not self.connected or not self.writer:
+            logger.warning("未连接到服务器,无法发送帧")
             return
         async with self.write_lock:
             try:
                 frame = make_frame(frame_type, channel_id, payload)
                 self.writer.write(frame)
                 await self.writer.drain()
-            except Exception:
+                logger.debug(f"发送帧: 类型={frame_type}, 通道ID={channel_id}, 载荷长度={len(payload)}")
+            except Exception as e:
                 # 发送失败,标记连接断开
+                logger.error(f"发送帧失败: {e}")
                 self.connected = False
 
     async def open_channel(self, host: str, port: int) -> Tuple[int, bool]:
@@ -439,12 +487,15 @@ class TunnelClient:
             Tuple[int, bool]: (通道ID, 是否成功)
         """
         if not self.connected:
+            logger.warning("未连接到服务器,无法打开通道")
             return 0, False
 
         # 分配新的通道ID
         async with self.channel_lock:
             channel_id = self.next_channel_id
             self.next_channel_id += 1
+
+        logger.info(f"打开通道 {channel_id}: {host}:{port}")
 
         # 创建事件用于等待服务器响应
         event = asyncio.Event()
@@ -455,14 +506,21 @@ class TunnelClient:
         try:
             payload = make_connect_payload(host, port)
             await self.send_frame(FRAME_CONNECT, channel_id, payload)
-        except Exception:
+            logger.debug(f"已发送通道 {channel_id} 连接请求")
+        except Exception as e:
+            logger.error(f"发送通道 {channel_id} 连接请求失败: {e}")
             return channel_id, False
 
         # 等待服务器响应,超时时间 30 秒
         try:
             await asyncio.wait_for(event.wait(), timeout=30.0)
             success = self.connect_results.get(channel_id, False)
+            if success:
+                logger.info(f"通道 {channel_id} 打开成功")
+            else:
+                logger.warning(f"通道 {channel_id} 打开失败")
         except asyncio.TimeoutError:
+            logger.error(f"通道 {channel_id} 打开超时")
             success = False
 
         # 清理事件和结果
@@ -479,6 +537,7 @@ class TunnelClient:
             channel_id: 通道ID
             data: 要发送的数据
         """
+        logger.debug(f"通道 {channel_id} 发送数据: {len(data)} 字节")
         await self.send_frame(FRAME_DATA, channel_id, data)
 
     async def close_channel_remote(self, channel_id: int):
@@ -488,6 +547,7 @@ class TunnelClient:
         参数:
             channel_id: 要关闭的通道ID
         """
+        logger.info(f"通知服务器关闭通道 {channel_id}")
         await self.send_frame(FRAME_CLOSE, channel_id)
 
     async def _close_channel(self, channel: Channel):
@@ -499,23 +559,27 @@ class TunnelClient:
         """
         if not channel.connected:
             return
+        logger.info(f"关闭本地通道 {channel.channel_id}")
         channel.connected = False
 
         # 关闭写入流
         try:
             channel.writer.close()
             await channel.writer.wait_closed()
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"关闭通道 {channel.channel_id} 写入流失败: {e}")
 
         # 从通道列表中移除
         self.channels.pop(channel.channel_id, None)
 
     async def disconnect(self):
         """断开连接并清理所有资源"""
+        logger.info("开始断开连接")
         self.connected = False
         
         # 关闭所有通道
+        channel_count = len(self.channels)
+        logger.info(f"关闭 {channel_count} 个活跃通道")
         for channel in list(self.channels.values()):
             await self._close_channel(channel)
         
@@ -524,8 +588,9 @@ class TunnelClient:
             try:
                 self.writer.close()
                 await asyncio.wait_for(self.writer.wait_closed(), timeout=2.0)
-            except:
-                pass
+                logger.info("与服务器的连接已关闭")
+            except Exception as e:
+                logger.error(f"关闭与服务器的连接失败: {e}")
         
         # 清理所有资源
         self.reader = None
@@ -533,6 +598,7 @@ class TunnelClient:
         self.channels.clear()
         self.connect_events.clear()
         self.connect_results.clear()
+        logger.info("连接断开,所有资源已清理")
 
 
 # ============================================================================
@@ -578,31 +644,40 @@ class SOCKS5Server:
         try:
             # 检查隧道是否已连接
             if not self.tunnel.connected:
+                logger.warning("隧道未连接,拒绝客户端请求")
                 writer.close()
                 return
 
             # SOCKS5 握手 - 读取客户端版本和认证方法
+            logger.debug("开始 SOCKS5 握手")
             data = await reader.read(2)
             if len(data) < 2 or data[0] != SOCKS5.VERSION:
+                logger.warning(f"无效的 SOCKS5 版本: {data[0] if data else 'None'}")
                 return
 
             nmethods = data[1]
+            logger.debug(f"客户端支持的认证方法数量: {nmethods}")
             # 跳过认证方法列表
             await reader.read(nmethods)
 
             # 响应握手 - 选择无需认证
+            logger.debug("发送握手响应: 选择无需认证")
             writer.write(bytes([SOCKS5.VERSION, SOCKS5.AUTH_NONE]))
             await writer.drain()
 
             # 读取连接请求
+            logger.debug("等待连接请求")
             data = await reader.read(4)
             if len(data) < 4:
+                logger.warning("未收到完整的连接请求")
                 return
 
             version, cmd, _, atyp = data
+            logger.debug(f"连接请求: 版本={version}, 命令={cmd}, 地址类型={atyp}")
 
             # 只支持 CONNECT 命令
             if cmd != SOCKS5.CMD_CONNECT:
+                logger.warning(f"不支持的命令: {cmd}")
                 writer.write(bytes([SOCKS5.VERSION, 0x07, 0, 1, 0, 0, 0, 0, 0, 0]))
                 await writer.drain()
                 return
@@ -612,28 +687,33 @@ class SOCKS5Server:
                 # IPv4 地址 (4字节)
                 addr_data = await reader.read(4)
                 host = socket.inet_ntoa(addr_data)
+                logger.debug(f"解析 IPv4 地址: {host}")
             elif atyp == SOCKS5.ATYP_DOMAIN:
                 # 域名 (1字节长度 + 域名)
                 length = (await reader.read(1))[0]
                 host = (await reader.read(length)).decode()
+                logger.debug(f"解析域名: {host}")
             elif atyp == SOCKS5.ATYP_IPV6:
                 # IPv6 地址 (16字节)
                 addr_data = await reader.read(16)
                 host = socket.inet_ntop(socket.AF_INET6, addr_data)
+                logger.debug(f"解析 IPv6 地址: {host}")
             else:
+                logger.warning(f"不支持的地址类型: {atyp}")
                 return
 
             # 读取目标端口 (2字节大端序)
             port_data = await reader.read(2)
             port = struct.unpack('>H', port_data)[0]
 
-            logger.info(f"连接请求: {host}:{port}")
+            logger.info(f"SOCKS5 连接请求: {host}:{port}")
 
             # 通过隧道打开连接
             channel_id, success = await self.tunnel.open_channel(host, port)
 
             if success:
                 # 连接成功 - 响应客户端
+                logger.info(f"SOCKS5 连接成功: {host}:{port} -> 通道 {channel_id}")
                 writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_SUCCESS, 0, 1, 0, 0, 0, 0, 0, 0]))
                 await writer.drain()
 
@@ -649,9 +729,11 @@ class SOCKS5Server:
                 self.tunnel.channels[channel_id] = channel
 
                 # 启动数据转发循环
+                logger.debug(f"启动通道 {channel_id} 数据转发循环")
                 await self._forward_loop(channel)
             else:
                 # 连接失败 - 通知客户端
+                logger.warning(f"SOCKS5 连接失败: {host}:{port}")
                 writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_FAILURE, 0, 1, 0, 0, 0, 0, 0, 0]))
                 await writer.drain()
 
@@ -660,13 +742,14 @@ class SOCKS5Server:
         finally:
             # 清理: 通知服务器关闭通道,关闭客户端连接
             if channel:
+                logger.debug(f"清理通道 {channel.channel_id}")
                 await self.tunnel.close_channel_remote(channel.channel_id)
                 await self.tunnel._close_channel(channel)
             try:
                 writer.close()
                 await writer.wait_closed()
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"关闭客户端连接失败: {e}")
 
     async def _forward_loop(self, channel: Channel):
         """
@@ -685,13 +768,15 @@ class SOCKS5Server:
                     if data:
                         # 发送到隧道服务器
                         await self.tunnel.send_data(channel.channel_id, data)
+                        logger.debug(f"通道 {channel.channel_id} 转发数据到隧道: {len(data)} 字节")
                     elif data == b'':
                         # 客户端断开连接
+                        logger.info(f"通道 {channel.channel_id} 客户端断开连接")
                         break
                 except asyncio.TimeoutError:
                     continue
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"通道 {channel.channel_id} 转发循环异常: {e}")
 
     async def start(self):
         """
@@ -724,9 +809,11 @@ async def run_client(config: ClientConfig, ca_cert: str):
     current_delay = reconnect_delay
 
     while True:
+        logger.info("创建新的隧道客户端实例")
         tunnel = TunnelClient(config, ca_cert)
 
         # 尝试连接
+        logger.info("尝试连接到服务器")
         if not await tunnel.connect():
             logger.warning(f"连接失败,{current_delay}秒后重试...")
             await asyncio.sleep(current_delay)
@@ -737,9 +824,11 @@ async def run_client(config: ClientConfig, ca_cert: str):
         current_delay = reconnect_delay
 
         # 在后台启动接收器
+        logger.info("启动后台接收器任务")
         receiver_task = asyncio.create_task(tunnel._receiver_loop())
 
         # 启动 SOCKS 服务器
+        logger.info(f"创建 SOCKS5 服务器: {config.socks_host}:{config.socks_port}")
         socks = SOCKS5Server(tunnel, config.socks_host, config.socks_port)
 
         try:
@@ -757,8 +846,10 @@ async def run_client(config: ClientConfig, ca_cert: str):
             async with socks_server:
                 try:
                     # 等待接收器完成 (意味着连接丢失)
+                    logger.info("等待接收器任务完成...")
                     await receiver_task
                 except asyncio.CancelledError:
+                    logger.debug("接收器任务被取消")
                     pass
 
             # 连接丢失 - 立即重连
@@ -779,6 +870,7 @@ async def run_client(config: ClientConfig, ca_cert: str):
             else:
                 logger.error(f"SOCKS 服务器错误: {e}")
         finally:
+            logger.info("清理资源")
             await tunnel.disconnect()
             receiver_task.cancel()
             try:
@@ -803,6 +895,7 @@ def main():
         --ca-cert: CA 证书路径
         --debug, -d: 启用调试模式
     """
+    logger.info("启动 SMTP 隧道客户端")
     parser = argparse.ArgumentParser(description='SMTP 隧道客户端 (快速模式)')
     parser.add_argument('--config', '-c', default='config.yaml', help='配置文件路径')
     parser.add_argument('--server', default=None, help='服务器域名 (TLS 需要完全限定域名)')
@@ -816,12 +909,16 @@ def main():
 
     # 启用调试模式
     if args.debug:
+        logger.info("启用调试模式")
         logging.getLogger().setLevel(logging.DEBUG)
 
     # 加载配置文件
+    logger.info(f"加载配置文件: {args.config}")
     try:
         config_data = load_config(args.config)
+        logger.info("配置文件加载成功")
     except FileNotFoundError:
+        logger.warning(f"配置文件 {args.config} 未找到,使用默认配置")
         config_data = {}
 
     client_conf = config_data.get('client', {})
@@ -848,10 +945,15 @@ def main():
         logger.error("未配置密钥!")
         return 1
 
+    logger.info(f"客户端配置: 服务器={config.server_host}:{config.server_port}, "
+                f"SOCKS5={config.socks_host}:{config.socks_port}, 用户名={config.username}")
+
     # 运行客户端
     try:
+        logger.info("开始运行客户端")
         return asyncio.run(run_client(config, ca_cert))
     except KeyboardInterrupt:
+        logger.info("收到键盘中断信号")
         return 0
 
 
