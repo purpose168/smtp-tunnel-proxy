@@ -155,6 +155,11 @@ class TunnelClient:
         self.max_channels = 1000  # 最大通道数
         self.max_buffer_size = 10 * 1024 * 1024  # 最大缓冲区大小: 10MB
 
+        # 添加连接统计
+        self.total_connections = 0
+        self.failed_connections = 0
+        self.closed_connections = 0
+
     async def connect(self) -> bool:
         """
         连接到服务器并完成 SMTP 握手,然后切换到二进制模式
@@ -360,6 +365,8 @@ class TunnelClient:
         """启动后台任务,持续接收来自服务器的帧"""
         logger.info("启动帧接收器")
         asyncio.create_task(self._receiver_loop())
+        asyncio.create_task(self._report_stats())
+        asyncio.create_task(self._cleanup_zombie_channels())
 
     async def _receiver_loop(self):
         """
@@ -501,6 +508,8 @@ class TunnelClient:
         返回:
             Tuple[int, bool]: (通道ID, 是否成功)
         """
+        self.total_connections += 1
+        
         if not self.connected:
             logger.warning("未连接到服务器,无法打开通道")
             return 0, False
@@ -532,6 +541,7 @@ class TunnelClient:
             # 清理事件和结果
             self.connect_events.pop(channel_id, None)
             self.connect_results.pop(channel_id, None)
+            self.failed_connections += 1
             return channel_id, False
 
         # 减少超时时间: 30 秒 -> 10 秒
@@ -542,9 +552,11 @@ class TunnelClient:
                 logger.info(f"通道 {channel_id} 打开成功")
             else:
                 logger.warning(f"通道 {channel_id} 打开失败")
+                self.failed_connections += 1
         except asyncio.TimeoutError:
             logger.error(f"通道 {channel_id} 打开超时")
             success = False
+            self.failed_connections += 1
 
         # 清理事件和结果
         self.connect_events.pop(channel_id, None)
@@ -584,6 +596,7 @@ class TunnelClient:
             return
         logger.info(f"关闭本地通道 {channel.channel_id}")
         channel.connected = False
+        self.closed_connections += 1
 
         # 关闭写入流
         try:
@@ -594,6 +607,52 @@ class TunnelClient:
 
         # 从通道列表中移除
         self.channels.pop(channel.channel_id, None)
+
+        # 清理连接事件和结果
+        self.connect_events.pop(channel.channel_id, None)
+        self.connect_results.pop(channel.channel_id, None)
+
+    async def _report_stats(self):
+        """定期报告连接统计"""
+        while self.connected:
+            try:
+                await asyncio.sleep(60)  # 每分钟报告一次
+                logger.info(f"连接统计: 总计={self.total_connections}, "
+                           f"失败={self.failed_connections}, "
+                           f"关闭={self.closed_connections}, "
+                           f"活跃={len(self.channels)}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"报告连接统计时出错: {e}")
+
+    async def _cleanup_zombie_channels(self):
+        """清理僵尸连接"""
+        while self.connected:
+            try:
+                await asyncio.sleep(30)  # 每 30 秒检查一次
+                
+                zombie_channels = []
+                for channel_id, channel in self.channels.items():
+                    try:
+                        # 检查连接是否仍然活跃
+                        if channel.writer.is_closing():
+                            zombie_channels.append(channel_id)
+                            logger.warning(f"发现僵尸连接: 通道 {channel_id}")
+                    except Exception as e:
+                        zombie_channels.append(channel_id)
+                        logger.warning(f"检查通道 {channel_id} 时出错: {e}")
+                
+                # 清理僵尸连接
+                for channel_id in zombie_channels:
+                    if channel_id in self.channels:
+                        channel = self.channels[channel_id]
+                        await self._close_channel(channel)
+                        logger.info(f"已清理僵尸连接: 通道 {channel_id}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"清理僵尸连接时出错: {e}")
 
     async def disconnect(self):
         """断开连接并清理所有资源"""
@@ -823,20 +882,19 @@ class SOCKS5Server:
         try:
             while channel.connected and self.tunnel.connected:
                 try:
-                    # 读取数据,超时 0.1 秒以支持优雅退出
                     data = await asyncio.wait_for(channel.reader.read(32768), timeout=0.1)
                     if data:
-                        # 发送到隧道服务器
                         await self.tunnel.send_data(channel.channel_id, data)
                         logger.debug(f"通道 {channel.channel_id} 转发数据到隧道: {len(data)} 字节")
                     elif data == b'':
-                        # 客户端断开连接
                         logger.info(f"通道 {channel.channel_id} 客户端断开连接")
                         break
                 except asyncio.TimeoutError:
                     continue
         except Exception as e:
-            logger.debug(f"通道 {channel.channel_id} 转发循环异常: {e}")
+            logger.error(f"通道 {channel.channel_id} 转发循环异常: {e}")
+            if channel.connected:
+                channel.connected = False
 
     async def start(self):
         """
