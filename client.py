@@ -143,6 +143,9 @@ class TunnelClient:
         self.channels: Dict[int, Channel] = {}      # 所有活跃通道
         self.next_channel_id = 1                     # 下一个通道ID
         self.channel_lock = asyncio.Lock()          # 通道ID分配锁
+        # 添加通道ID回收机制
+        self.available_channel_ids = []             # 可用的通道ID列表
+        self.max_channel_id = 1000                 # 最大通道ID
 
         # 连接事件管理 - 用于等待服务器响应
         self.connect_events: Dict[int, asyncio.Event] = {}    # 通道连接事件
@@ -519,10 +522,17 @@ class TunnelClient:
             logger.error(f"通道数量超过限制: {len(self.channels)} >= {self.max_channels}")
             return 0, False
 
-        # 分配新的通道ID
+        # 分配新的通道ID（优先回收）
         async with self.channel_lock:
-            channel_id = self.next_channel_id
-            self.next_channel_id += 1
+            if self.available_channel_ids:
+                channel_id = self.available_channel_ids.pop()
+                logger.debug(f"回收通道ID: {channel_id}")
+            else:
+                channel_id = self.next_channel_id
+                self.next_channel_id += 1
+                if self.next_channel_id > self.max_channel_id:
+                    self.next_channel_id = 1  # 循环使用
+                    logger.debug(f"通道ID循环到 1")
 
         logger.info(f"打开通道 {channel_id}: {host}:{port}")
 
@@ -553,10 +563,26 @@ class TunnelClient:
             else:
                 logger.warning(f"通道 {channel_id} 打开失败")
                 self.failed_connections += 1
+                # 清理通道对象（如果存在）
+                if channel_id in self.channels:
+                    channel = self.channels[channel_id]
+                    await self._close_channel(channel)
+                    logger.debug(f"已清理通道 {channel_id} 对象")
         except asyncio.TimeoutError:
             logger.error(f"通道 {channel_id} 打开超时")
             success = False
             self.failed_connections += 1
+            # 通知服务器关闭连接
+            try:
+                await self.send_frame(FRAME_CLOSE, channel_id, b'')
+                logger.debug(f"已通知服务器关闭通道 {channel_id}")
+            except Exception as e:
+                logger.error(f"发送关闭帧失败: {e}")
+            # 清理通道对象（如果存在）
+            if channel_id in self.channels:
+                channel = self.channels[channel_id]
+                await self._close_channel(channel)
+                logger.debug(f"已清理通道 {channel_id} 对象")
 
         # 清理事件和结果
         self.connect_events.pop(channel_id, None)
@@ -592,35 +618,97 @@ class TunnelClient:
         参数:
             channel: 要关闭的通道对象
         """
-        if not channel.connected:
+        if not channel:
+            logger.debug("通道对象为空，跳过关闭")
             return
+        
+        if not channel.connected:
+            logger.debug(f"通道 {channel.channel_id} 已断开，跳过关闭")
+            return
+        
         logger.info(f"关闭本地通道 {channel.channel_id}")
         channel.connected = False
         self.closed_connections += 1
 
         # 关闭写入流
         try:
-            channel.writer.close()
-            await channel.writer.wait_closed()
+            if hasattr(channel, 'writer') and channel.writer:
+                channel.writer.close()
+                await asyncio.wait_for(channel.writer.wait_closed(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"关闭通道 {channel.channel_id} writer 超时,强制关闭")
+            try:
+                if hasattr(channel.writer, 'transport'):
+                    channel.writer.transport.abort()
+            except Exception as e:
+                logger.error(f"强制关闭 transport 失败: {e}")
         except Exception as e:
-            logger.error(f"关闭通道 {channel.channel_id} 写入流失败: {e}")
+            logger.error(f"关闭通道 {channel.channel_id} writer 失败: {e}")
+            try:
+                if hasattr(channel.writer, 'transport'):
+                    channel.writer.transport.abort()
+            except Exception as e2:
+                logger.error(f"强制关闭 transport 失败: {e2}")
+        finally:
+            # 最后的手段：强制关闭Socket
+            try:
+                if hasattr(channel, 'writer') and hasattr(channel.writer, 'transport') and hasattr(channel.writer.transport, '_sock'):
+                    channel.writer.transport._sock.close()
+            except Exception as e:
+                logger.error(f"强制关闭 Socket 失败: {e}")
 
         # 从通道列表中移除
-        self.channels.pop(channel.channel_id, None)
+        if channel.channel_id in self.channels:
+            self.channels.pop(channel.channel_id)
+            logger.debug(f"已从通道列表中移除通道 {channel.channel_id}")
 
         # 清理连接事件和结果
-        self.connect_events.pop(channel.channel_id, None)
-        self.connect_results.pop(channel.channel_id, None)
+        if channel.channel_id in self.connect_events:
+            self.connect_events.pop(channel.channel_id)
+            logger.debug(f"已清理通道 {channel.channel_id} 事件对象")
+        
+        if channel.channel_id in self.connect_results:
+            self.connect_results.pop(channel.channel_id)
+            logger.debug(f"已清理通道 {channel.channel_id} 结果对象")
+
+        # 回收通道ID
+        if channel.channel_id not in self.available_channel_ids:
+            self.available_channel_ids.append(channel.channel_id)
+            logger.debug(f"回收通道ID: {channel.channel_id}")
 
     async def _report_stats(self):
         """定期报告连接统计"""
         while self.connected:
             try:
                 await asyncio.sleep(60)  # 每分钟报告一次
+                import asyncio
+                task_count = len(asyncio.all_tasks())
+                
+                # 添加文件描述符监控
+                try:
+                    import psutil
+                    import os
+                    proc = psutil.Process(os.getpid())
+                    num_fds = proc.num_fds() if hasattr(proc, 'num_fds') else 0
+                    memory_mb = proc.memory_info().rss / 1024 / 1024
+                    cpu_percent = proc.cpu_percent(interval=0.1)
+                except ImportError:
+                    num_fds = 0
+                    memory_mb = 0
+                    cpu_percent = 0
+                
                 logger.info(f"连接统计: 总计={self.total_connections}, "
                            f"失败={self.failed_connections}, "
                            f"关闭={self.closed_connections}, "
-                           f"活跃={len(self.channels)}")
+                           f"活跃={len(self.channels)}, "
+                           f"事件={len(self.connect_events)}, "
+                           f"结果={len(self.connect_results)}, "
+                           f"任务={task_count}, "
+                           f"可用ID={len(self.available_channel_ids)}, "
+                           f"下一个ID={self.next_channel_id}, "
+                           f"文件描述符={num_fds}, "
+                           f"内存={memory_mb:.1f}MB, "
+                           f"CPU={cpu_percent:.1f}%")
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -734,11 +822,11 @@ class SOCKS5Server:
         """
         # 使用信号量限制并发连接
         async with self.connection_semaphore:
-            self.current_connections += 1
-            logger.info(f"当前连接数: {self.current_connections}/{self.max_connections}")
-
             channel = None
             try:
+                self.current_connections += 1
+                logger.info(f"当前连接数: {self.current_connections}/{self.max_connections}")
+
                 # 检查隧道是否已连接
                 if not self.tunnel.connected:
                     logger.warning("隧道未连接,拒绝客户端请求")
@@ -846,6 +934,12 @@ class SOCKS5Server:
                     logger.warning(f"SOCKS5 连接失败: {host}:{port}")
                     writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_FAILURE, 0, 1, 0, 0, 0, 0, 0, 0]))
                     await writer.drain()
+                    # 清理通道对象（如果存在）
+                    if channel_id in self.tunnel.channels:
+                        channel = self.tunnel.channels[channel_id]
+                        await self.tunnel._close_channel(channel)
+                        logger.debug(f"已清理通道 {channel_id} 对象")
+                    return
 
             except asyncio.TimeoutError:
                 logger.warning("SOCKS5 客户端操作超时")
@@ -863,10 +957,28 @@ class SOCKS5Server:
                 # 确保在所有情况下都关闭 writer
                 try:
                     writer.close()
-                    await writer.wait_closed()
+                    await asyncio.wait_for(writer.wait_closed(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning("关闭 writer 超时,强制关闭")
+                    try:
+                        writer.transport.abort()
+                    except Exception as e:
+                        logger.error(f"强制关闭 transport 失败: {e}")
                 except Exception as e:
                     logger.debug(f"关闭客户端连接失败: {e}")
+                    try:
+                        writer.transport.abort()
+                    except Exception as e2:
+                        logger.error(f"强制关闭 transport 失败: {e2}")
+                finally:
+                    # 最后的手段：强制关闭Socket
+                    try:
+                        if hasattr(writer, 'transport') and hasattr(writer.transport, '_sock'):
+                            writer.transport._sock.close()
+                    except Exception as e:
+                        logger.error(f"强制关闭 Socket 失败: {e}")
 
+                # 确保计数器被减少
                 self.current_connections -= 1
                 logger.debug(f"连接已关闭,当前连接数: {self.current_connections}/{self.max_connections}")
 
