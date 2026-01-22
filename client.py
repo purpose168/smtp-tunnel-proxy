@@ -1037,6 +1037,7 @@ async def run_client(config: ClientConfig, ca_cert: str):
     max_reconnect_delay = 30  # 最大重连延迟 (秒)
     current_delay = reconnect_delay
     socks_server = None       # 跟踪 SOCKS5 服务器实例
+    receiver_task = None       # 跟踪接收器任务
 
     while True:
         logger.info("创建新的隧道客户端实例")
@@ -1052,6 +1053,15 @@ async def run_client(config: ClientConfig, ca_cert: str):
 
         # 连接成功 - 重置延迟
         current_delay = reconnect_delay
+
+        # 取消旧的接收器任务（如果存在）
+        if receiver_task and not receiver_task.done():
+            logger.info("取消旧的接收器任务")
+            receiver_task.cancel()
+            try:
+                await asyncio.wait_for(receiver_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                logger.debug("旧接收器任务取消超时")
 
         # 在后台启动接收器
         logger.info("启动后台接收器任务")
