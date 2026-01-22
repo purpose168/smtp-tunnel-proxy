@@ -563,11 +563,8 @@ class TunnelClient:
             else:
                 logger.warning(f"通道 {channel_id} 打开失败")
                 self.failed_connections += 1
-                # 清理通道对象（如果存在）
-                if channel_id in self.channels:
-                    channel = self.channels[channel_id]
-                    await self._close_channel(channel)
-                    logger.debug(f"已清理通道 {channel_id} 对象")
+                # 注意：不清理通道对象，因为通道对象可能还没有被创建
+                # 通道对象会在SOCKS5连接成功后被创建，并在SOCKS5连接失败时被清理
         except asyncio.TimeoutError:
             logger.error(f"通道 {channel_id} 打开超时")
             success = False
@@ -578,11 +575,8 @@ class TunnelClient:
                 logger.debug(f"已通知服务器关闭通道 {channel_id}")
             except Exception as e:
                 logger.error(f"发送关闭帧失败: {e}")
-            # 清理通道对象（如果存在）
-            if channel_id in self.channels:
-                channel = self.channels[channel_id]
-                await self._close_channel(channel)
-                logger.debug(f"已清理通道 {channel_id} 对象")
+            # 注意：不清理通道对象，因为通道对象可能还没有被创建
+            # 通道对象会在SOCKS5连接成功后被创建，并在SOCKS5连接失败时被清理
 
         # 清理事件和结果
         self.connect_events.pop(channel_id, None)
@@ -652,7 +646,12 @@ class TunnelClient:
         finally:
             # 最后的手段：强制关闭Socket
             try:
-                if hasattr(channel, 'writer') and hasattr(channel.writer, 'transport') and hasattr(channel.writer.transport, '_sock'):
+                if (hasattr(channel, 'writer') and 
+                    channel.writer and 
+                    hasattr(channel.writer, 'transport') and 
+                    channel.writer.transport and 
+                    hasattr(channel.writer.transport, '_sock') and 
+                    channel.writer.transport._sock is not None):
                     channel.writer.transport._sock.close()
             except Exception as e:
                 logger.error(f"强制关闭 Socket 失败: {e}")
@@ -934,11 +933,8 @@ class SOCKS5Server:
                     logger.warning(f"SOCKS5 连接失败: {host}:{port}")
                     writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_FAILURE, 0, 1, 0, 0, 0, 0, 0, 0]))
                     await writer.drain()
-                    # 清理通道对象（如果存在）
-                    if channel_id in self.tunnel.channels:
-                        channel = self.tunnel.channels[channel_id]
-                        await self.tunnel._close_channel(channel)
-                        logger.debug(f"已清理通道 {channel_id} 对象")
+                    # 注意：不清理通道对象，因为通道对象可能还没有被创建
+                    # 通道对象只有在连接成功时才会被创建
                     return
 
             except asyncio.TimeoutError:
@@ -973,7 +969,10 @@ class SOCKS5Server:
                 finally:
                     # 最后的手段：强制关闭Socket
                     try:
-                        if hasattr(writer, 'transport') and hasattr(writer.transport, '_sock'):
+                        if (hasattr(writer, 'transport') and 
+                            writer.transport and 
+                            hasattr(writer.transport, '_sock') and 
+                            writer.transport._sock is not None):
                             writer.transport._sock.close()
                     except Exception as e:
                         logger.error(f"强制关闭 Socket 失败: {e}")
