@@ -370,6 +370,7 @@ class TunnelClient:
         asyncio.create_task(self._receiver_loop())
         asyncio.create_task(self._report_stats())
         asyncio.create_task(self._cleanup_zombie_channels())
+        asyncio.create_task(self._cleanup_stale_resources())  # 修复：添加过期资源清理任务
 
     async def _receiver_loop(self):
         """
@@ -393,8 +394,9 @@ class TunnelClient:
                 # 检查缓冲区大小
                 if len(buffer) > self.max_buffer_size:
                     logger.error(f"缓冲区大小超过限制: {len(buffer)} > {self.max_buffer_size}")
-                    logger.error("可能收到恶意数据或协议错误，断开连接")
-                    break
+                    logger.error("可能收到恶意数据或协议错误，清空缓冲区")
+                    buffer = b''  # 修复：清空缓冲区而不是断开连接
+                    continue
 
                 # 处理缓冲区中的完整帧
                 while len(buffer) >= FRAME_HEADER_SIZE:
@@ -563,8 +565,11 @@ class TunnelClient:
             else:
                 logger.warning(f"通道 {channel_id} 打开失败")
                 self.failed_connections += 1
-                # 注意：不清理通道对象，因为通道对象可能还没有被创建
-                # 通道对象会在SOCKS5连接成功后被创建，并在SOCKS5连接失败时被清理
+                # 修复：回收通道ID，防止资源泄漏
+                async with self.channel_lock:
+                    if channel_id not in self.available_channel_ids:
+                        self.available_channel_ids.append(channel_id)
+                        logger.debug(f"回收失败通道ID: {channel_id}")
         except asyncio.TimeoutError:
             logger.error(f"通道 {channel_id} 打开超时")
             success = False
@@ -575,12 +580,18 @@ class TunnelClient:
                 logger.debug(f"已通知服务器关闭通道 {channel_id}")
             except Exception as e:
                 logger.error(f"发送关闭帧失败: {e}")
-            # 注意：不清理通道对象，因为通道对象可能还没有被创建
-            # 通道对象会在SOCKS5连接成功后被创建，并在SOCKS5连接失败时被清理
+            # 修复：回收通道ID，防止资源泄漏
+            async with self.channel_lock:
+                if channel_id not in self.available_channel_ids:
+                    self.available_channel_ids.append(channel_id)
+                    logger.debug(f"回收超时通道ID: {channel_id}")
 
-        # 清理事件和结果
-        self.connect_events.pop(channel_id, None)
-        self.connect_results.pop(channel_id, None)
+        # 清理事件和结果 - 使用 try-finally 确保清理
+        try:
+            self.connect_events.pop(channel_id, None)
+            self.connect_results.pop(channel_id, None)
+        except Exception as e:
+            logger.error(f"清理通道 {channel_id} 事件和结果时出错: {e}")
 
         return channel_id, success
 
@@ -740,6 +751,32 @@ class TunnelClient:
                 break
             except Exception as e:
                 logger.error(f"清理僵尸连接时出错: {e}")
+
+    async def _cleanup_stale_resources(self):
+        """清理过期的连接事件和结果，防止资源泄漏"""
+        while self.connected:
+            try:
+                await asyncio.sleep(60)  # 每分钟检查一次
+                
+                # 清理已设置的连接事件（超时或完成的连接）
+                stale_events = []
+                for channel_id, event in self.connect_events.items():
+                    if event.is_set():
+                        stale_events.append(channel_id)
+                
+                for channel_id in stale_events:
+                    self.connect_events.pop(channel_id, None)
+                    self.connect_results.pop(channel_id, None)
+                    logger.debug(f"清理过期事件: 通道 {channel_id}")
+                
+                # 如果清理了大量事件，记录警告
+                if len(stale_events) > 10:
+                    logger.warning(f"清理了 {len(stale_events)} 个过期事件，可能存在资源泄漏")
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"清理过期资源时出错: {e}")
 
     async def disconnect(self):
         """断开连接并清理所有资源"""
@@ -933,8 +970,7 @@ class SOCKS5Server:
                     logger.warning(f"SOCKS5 连接失败: {host}:{port}")
                     writer.write(bytes([SOCKS5.VERSION, SOCKS5.REP_FAILURE, 0, 1, 0, 0, 0, 0, 0, 0]))
                     await writer.drain()
-                    # 注意：不清理通道对象，因为通道对象可能还没有被创建
-                    # 通道对象只有在连接成功时才会被创建
+                    # 修复：通道ID已在open_channel中回收，这里不需要额外处理
                     return
 
             except asyncio.TimeoutError:
@@ -990,6 +1026,9 @@ class SOCKS5Server:
         参数:
             channel: 通道对象
         """
+        idle_count = 0
+        max_idle_count = 100  # 10秒无数据则关闭 (0.1秒 * 100)
+        
         try:
             while channel.connected and self.tunnel.connected:
                 try:
@@ -997,10 +1036,16 @@ class SOCKS5Server:
                     if data:
                         await self.tunnel.send_data(channel.channel_id, data)
                         logger.debug(f"通道 {channel.channel_id} 转发数据到隧道: {len(data)} 字节")
+                        idle_count = 0  # 重置空闲计数
                     elif data == b'':
                         logger.info(f"通道 {channel.channel_id} 客户端断开连接")
                         break
                 except asyncio.TimeoutError:
+                    idle_count += 1
+                    # 修复：添加空闲超时退出条件，防止无限循环消耗CPU
+                    if idle_count >= max_idle_count:
+                        logger.warning(f"通道 {channel.channel_id} 空闲超时，关闭连接")
+                        break
                     continue
         except Exception as e:
             logger.error(f"通道 {channel.channel_id} 转发循环异常: {e}")
