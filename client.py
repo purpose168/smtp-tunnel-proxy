@@ -728,7 +728,7 @@ class TunnelClient:
         """清理僵尸连接"""
         while self.connected:
             try:
-                await asyncio.sleep(30)  # 每 30 秒检查一次
+                await asyncio.sleep(120)  # 每 120 秒检查一次
                 
                 zombie_channels = []
                 for channel_id, channel in self.channels.items():
@@ -1027,7 +1027,7 @@ class SOCKS5Server:
             channel: 通道对象
         """
         idle_count = 0
-        max_idle_count = 100  # 10秒无数据则关闭 (0.1秒 * 100)
+        max_idle_count = 1000  # 100秒无数据则关闭 (0.1秒 * 1000)
         
         try:
             while channel.connected and self.tunnel.connected:
