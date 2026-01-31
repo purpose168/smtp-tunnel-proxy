@@ -375,20 +375,24 @@ class TunnelClient:
     async def _receiver_loop(self):
         """
         接收并分发来自服务器的帧
-        
+
         持续读取二进制数据,解析帧,并根据帧类型进行相应处理
         """
         buffer = b''  # 接收缓冲区
+        timeout_count = 0  # 超时计数器
+        max_timeout_count = 3  # 最大允许超时次数
+        receive_timeout = 60.0  # 接收超时时间 (秒)
         logger.debug("帧接收器循环开始")
 
         while self.connected:
             try:
-                # 读取数据,超时时间 300 秒 (5分钟)
-                chunk = await asyncio.wait_for(self.reader.read(65536), timeout=300.0)
+                # 读取数据,超时时间 60 秒
+                chunk = await asyncio.wait_for(self.reader.read(65536), timeout=receive_timeout)
                 if not chunk:
                     logger.info("服务器连接已断开")
                     break
                 buffer += chunk
+                timeout_count = 0  # 成功接收数据，重置超时计数器
                 logger.debug(f"接收到数据块: {len(chunk)} 字节")
 
                 # 检查缓冲区大小
@@ -423,8 +427,14 @@ class TunnelClient:
                     await self._handle_frame(frame_type, channel_id, payload)
 
             except asyncio.TimeoutError:
-                # 超时继续循环,保持连接活跃
-                logger.debug("接收数据超时,继续等待")
+                # 超时计数器递增
+                timeout_count += 1
+                logger.debug(f"接收数据超时 ({timeout_count}/{max_timeout_count}), 继续等待")
+                
+                # 连续超时达到阈值，说明网络可能中断，断开连接触发重连
+                if timeout_count >= max_timeout_count:
+                    logger.warning(f"连续超时 {max_timeout_count} 次，网络可能中断，断开连接")
+                    break
                 continue
             except Exception as e:
                 logger.error(f"接收器错误: {e}")
