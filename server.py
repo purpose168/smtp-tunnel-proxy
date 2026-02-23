@@ -21,6 +21,8 @@ import logging
 import argparse
 import struct
 import os
+import re
+import ipaddress
 from typing import Dict, Optional
 from dataclasses import dataclass
 
@@ -260,7 +262,14 @@ class TunnelSession:
             if not data:
                 return None
             return data.decode('utf-8', errors='replace').strip()
-        except:
+        except asyncio.TimeoutError:
+            logger.debug(f"读取行超时: {self.peer_str}")
+            return None
+        except (ConnectionResetError, BrokenPipeError, OSError) as e:
+            logger.debug(f"连接错误: {e}")
+            return None
+        except UnicodeDecodeError as e:
+            logger.warning(f"解码错误: {e}")
             return None
 
     async def _binary_mode(self):
@@ -315,11 +324,55 @@ class TunnelSession:
 
     async def _handle_connect(self, channel_id: int, payload: bytes):
         """处理 CONNECT 请求"""
+        # 输入验证：检查payload最小长度
+        MIN_PAYLOAD_SIZE = 4  # 主机长度(1) + 最短主机名(1) + 端口(2)
+        if len(payload) < MIN_PAYLOAD_SIZE:
+            logger.warning(f"无效的连接请求: payload太短 ({len(payload)} 字节)")
+            await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Invalid payload')
+            return
+        
+        # 检查通道数量限制
+        MAX_CHANNELS = 1000
+        if len(self.channels) >= MAX_CHANNELS:
+            logger.warning(f"通道数量超过限制: {len(self.channels)} >= {MAX_CHANNELS}")
+            await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Too many channels')
+            return
+        
         try:
             # 解析: 主机长度(1) + 主机名 + 端口(2)
             host_len = payload[0]
+            
+            # 验证主机名长度
+            MAX_HOST_LEN = 253  # DNS最大主机名长度
+            if host_len == 0 or host_len > MAX_HOST_LEN:
+                logger.warning(f"无效的主机名长度: {host_len}")
+                await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Invalid hostname length')
+                return
+            
+            # 验证payload是否包含完整的主机名和端口
+            if len(payload) < 1 + host_len + 2:
+                logger.warning(f"payload不完整: 需要 {1 + host_len + 2} 字节，实际 {len(payload)} 字节")
+                await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Incomplete payload')
+                return
+            
             host = payload[1:1+host_len].decode('utf-8')
             port = struct.unpack('>H', payload[1+host_len:3+host_len])[0]
+            
+            # 验证端口号范围
+            if port == 0 or port > 65535:
+                logger.warning(f"无效的端口号: {port}")
+                await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Invalid port')
+                return
+            
+            # 验证主机名格式（防止注入攻击）
+            if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$', host):
+                # 也允许IP地址格式
+                try:
+                    ipaddress.ip_address(host)
+                except ValueError:
+                    logger.warning(f"无效的主机名格式: {host}")
+                    await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Invalid hostname format')
+                    return
 
             logger.info(f"连接 ch={channel_id} -> {host}:{port}")
 
@@ -353,6 +406,12 @@ class TunnelSession:
                 # 发送失败响应（限制错误消息长度）
                 await self._send_frame(FRAME_CONNECT_FAIL, channel_id, str(e).encode()[:100])
 
+        except UnicodeDecodeError as e:
+            logger.error(f"主机名解码错误: {e}")
+            await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Invalid hostname encoding')
+        except struct.error as e:
+            logger.error(f"端口解析错误: {e}")
+            await self._send_frame(FRAME_CONNECT_FAIL, channel_id, b'Invalid port format')
         except Exception as e:
             logger.error(f"处理连接错误: {e}")
             await self._send_frame(FRAME_CONNECT_FAIL, channel_id)
@@ -364,8 +423,11 @@ class TunnelSession:
             try:
                 channel.writer.write(payload)
                 await channel.writer.drain()
-            except:
-                # 写入失败，关闭通道
+            except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                self._log(logging.DEBUG, f"通道 {channel_id} 写入失败: {e}")
+                await self._close_channel(channel)
+            except Exception as e:
+                self._log(logging.ERROR, f"通道 {channel_id} 意外错误: {e}")
                 await self._close_channel(channel)
 
     async def _handle_close(self, channel_id: int):
@@ -422,8 +484,10 @@ class TunnelSession:
             try:
                 channel.writer.close()
                 await channel.writer.wait_closed()
-            except:
-                pass
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                pass  # 连接已断开，忽略错误
+            except Exception as e:
+                logger.debug(f"关闭通道写入器时出错: {e}")
 
         # 从通道字典中移除
         self.channels.pop(channel.channel_id, None)
@@ -437,8 +501,10 @@ class TunnelSession:
         try:
             self.writer.close()
             await self.writer.wait_closed()
-        except:
-            pass
+        except (ConnectionResetError, BrokenPipeError, OSError):
+            pass  # 连接已断开，忽略错误
+        except Exception as e:
+            logger.debug(f"清理会话时出错: {e}")
 
 
 # ============================================================================

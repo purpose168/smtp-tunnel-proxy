@@ -701,7 +701,6 @@ class TunnelClient:
         while self.connected:
             try:
                 await asyncio.sleep(60)  # 每分钟报告一次
-                import asyncio
                 task_count = len(asyncio.all_tasks())
                 
                 # 添加文件描述符监控

@@ -15,6 +15,7 @@
 import os
 import sys
 import argparse
+import re
 from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
@@ -301,8 +302,65 @@ def main():
 
     args = parser.parse_args()
 
+    # 输入验证：验证主机名格式
+    hostname_pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$'
+    if not re.match(hostname_pattern, args.hostname):
+        print(f"错误: 无效的主机名格式: {args.hostname}")
+        print("主机名只能包含字母、数字、连字符和点号")
+        sys.exit(1)
+    
+    # 验证主机名长度
+    if len(args.hostname) > 253:
+        print(f"错误: 主机名太长: {len(args.hostname)} 字符 (最大 253)")
+        sys.exit(1)
+    
+    # 输入验证：验证密钥大小
+    MIN_KEY_SIZE = 2048
+    MAX_KEY_SIZE = 8192
+    if args.key_size < MIN_KEY_SIZE:
+        print(f"警告: 密钥大小 {args.key_size} 位太小，不安全")
+        print(f"自动调整为最小安全大小: {MIN_KEY_SIZE} 位")
+        args.key_size = MIN_KEY_SIZE
+    elif args.key_size > MAX_KEY_SIZE:
+        print(f"警告: 密钥大小 {args.key_size} 位太大，生成会很慢")
+        print(f"自动调整为最大推荐大小: {MAX_KEY_SIZE} 位")
+        args.key_size = MAX_KEY_SIZE
+    
+    # 输入验证：验证有效期天数
+    MIN_DAYS = 1
+    MAX_DAYS = 3650  # 10年
+    if args.days < MIN_DAYS:
+        print(f"错误: 有效期天数不能小于 {MIN_DAYS}")
+        sys.exit(1)
+    if args.days > MAX_DAYS:
+        print(f"警告: 有效期 {args.days} 天超过推荐最大值 {MAX_DAYS} 天 (10年)")
+    
+    # 输入验证：验证输出目录安全性
+    output_dir = os.path.abspath(args.output_dir)
+    
+    # 检查输出目录是否在敏感位置
+    sensitive_paths = ['/etc', '/root', '/var/log']
+    for sensitive in sensitive_paths:
+        if output_dir.startswith(sensitive):
+            print(f"警告: 输出目录位于敏感位置: {output_dir}")
+            response = input("是否继续? (y/N): ")
+            if response.lower() != 'y':
+                print("已取消")
+                sys.exit(0)
+            break
+    
+    # 检查输出目录是否已存在证书文件
+    cert_files = ['ca.key', 'ca.crt', 'server.key', 'server.crt']
+    existing_files = [f for f in cert_files if os.path.exists(os.path.join(output_dir, f))]
+    if existing_files:
+        print(f"警告: 以下证书文件已存在: {', '.join(existing_files)}")
+        response = input("是否覆盖? (y/N): ")
+        if response.lower() != 'y':
+            print("已取消")
+            sys.exit(0)
+
     # 如果需要,创建输出目录
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     # 显示配置信息
     print(f"正在为以下主机名生成证书: {args.hostname}")
