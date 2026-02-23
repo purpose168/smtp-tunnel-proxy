@@ -121,7 +121,19 @@ class TunnelClient:
     
     负责与服务端建立 SMTP 连接,完成握手和认证,然后切换到二进制模式进行数据传输
     支持多通道并发,每个通道对应一个 SOCKS5 连接
+    
+    自动重连机制:
+    - 实时监测通道连接状态
+    - 连续N次通道打开失败时触发自动重连
+    - 指数退避重连策略
+    - 重连成功后恢复正常通道创建流程
     """
+    
+    # 自动重连配置常量
+    DEFAULT_CONSECUTIVE_FAILURES_THRESHOLD = 5  # 触发重连的连续失败次数阈值
+    DEFAULT_INITIAL_RECONNECT_DELAY = 2.0       # 初始重连延迟（秒）
+    DEFAULT_MAX_RECONNECT_DELAY = 60.0          # 最大重连延迟（秒）
+    DEFAULT_FAILURE_WINDOW_SECONDS = 60.0       # 失败计数窗口（秒）
     
     def __init__(self, config: ClientConfig, ca_cert: str = None):
         """
@@ -162,6 +174,28 @@ class TunnelClient:
         self.total_connections = 0
         self.failed_connections = 0
         self.closed_connections = 0
+        
+        # ========== 自动重连机制相关属性 ==========
+        # 连续失败检测
+        self._consecutive_failures = 0  # 连续失败计数
+        self._failure_timestamps: list = []  # 失败时间戳列表（用于滑动窗口）
+        self._last_failure_reason: str = ""  # 最后一次失败原因
+        
+        # 重连状态
+        self._reconnecting = False  # 是否正在重连
+        self._reconnect_requested = asyncio.Event()  # 重连请求事件
+        self._current_reconnect_delay = self.DEFAULT_INITIAL_RECONNECT_DELAY
+        
+        # 重连统计
+        self._total_reconnects = 0  # 总重连次数
+        self._successful_reconnects = 0  # 成功重连次数
+        self._last_reconnect_time: Optional[float] = None  # 最后一次重连时间
+        
+        # 重连配置（可通过配置文件覆盖）
+        self._consecutive_failures_threshold = self.DEFAULT_CONSECUTIVE_FAILURES_THRESHOLD
+        self._initial_reconnect_delay = self.DEFAULT_INITIAL_RECONNECT_DELAY
+        self._max_reconnect_delay = self.DEFAULT_MAX_RECONNECT_DELAY
+        self._failure_window_seconds = self.DEFAULT_FAILURE_WINDOW_SECONDS
 
     async def connect(self) -> bool:
         """
@@ -190,6 +224,229 @@ class TunnelClient:
         except Exception as e:
             logger.error(f"连接失败: {e}")
             return False
+    
+    # ========================================================================
+    # 自动重连机制方法
+    # ========================================================================
+    
+    def _record_channel_failure(self, reason: str):
+        """
+        记录通道打开失败，用于连续失败检测
+        
+        参数:
+            reason: 失败原因描述
+        """
+        current_time = time.time()
+        
+        # 记录失败时间戳
+        self._failure_timestamps.append(current_time)
+        self._last_failure_reason = reason
+        
+        # 清理过期的失败记录（滑动窗口）
+        cutoff_time = current_time - self._failure_window_seconds
+        self._failure_timestamps = [
+            ts for ts in self._failure_timestamps if ts > cutoff_time
+        ]
+        
+        # 更新连续失败计数
+        self._consecutive_failures += 1
+        
+        logger.warning(
+            f"通道打开失败记录: 原因='{reason}', "
+            f"连续失败次数={self._consecutive_failures}/{self._consecutive_failures_threshold}, "
+            f"窗口内失败次数={len(self._failure_timestamps)}"
+        )
+        
+        # 检查是否需要触发重连
+        if self._should_trigger_reconnect():
+            logger.warning(
+                f"连续失败次数达到阈值 {self._consecutive_failures_threshold}，触发自动重连"
+            )
+            self._request_reconnect()
+    
+    def _record_channel_success(self):
+        """记录通道打开成功，重置连续失败计数"""
+        if self._consecutive_failures > 0:
+            logger.info(
+                f"通道打开成功，重置连续失败计数: {self._consecutive_failures} -> 0"
+            )
+        self._consecutive_failures = 0
+        self._failure_timestamps.clear()
+        self._last_failure_reason = ""
+    
+    def _should_trigger_reconnect(self) -> bool:
+        """
+        判断是否应该触发重连
+        
+        返回:
+            bool: 是否应该触发重连
+        """
+        # 如果已经在重连中，不重复触发
+        if self._reconnecting:
+            return False
+        
+        # 检查连续失败次数是否达到阈值
+        if self._consecutive_failures >= self._consecutive_failures_threshold:
+            return True
+        
+        # 检查窗口内失败次数（短时间内大量失败也触发重连）
+        if len(self._failure_timestamps) >= self._consecutive_failures_threshold * 2:
+            return True
+        
+        return False
+    
+    def _request_reconnect(self):
+        """请求重连（非阻塞）"""
+        if not self._reconnecting:
+            self._reconnect_requested.set()
+            logger.info("已发出重连请求信号")
+    
+    async def _perform_reconnect(self) -> bool:
+        """
+        执行重连操作，使用指数退避策略
+        
+        返回:
+            bool: 重连是否成功
+        """
+        if self._reconnecting:
+            logger.debug("已在重连中，跳过重复重连请求")
+            return False
+        
+        self._reconnecting = True
+        self._total_reconnects += 1
+        self._last_reconnect_time = time.time()
+        
+        logger.warning(
+            f"开始执行自动重连 (第 {self._total_reconnects} 次), "
+            f"原因: {self._last_failure_reason}"
+        )
+        
+        try:
+            # 断开现有连接
+            await self.disconnect()
+            
+            # 指数退避重连
+            attempt = 0
+            max_attempts = 10  # 最大重连尝试次数
+            
+            while attempt < max_attempts:
+                attempt += 1
+                delay = min(
+                    self._initial_reconnect_delay * (2 ** (attempt - 1)),
+                    self._max_reconnect_delay
+                )
+                
+                logger.info(
+                    f"重连尝试 {attempt}/{max_attempts}, "
+                    f"等待 {delay:.1f} 秒后连接..."
+                )
+                
+                await asyncio.sleep(delay)
+                
+                # 尝试连接
+                if await self.connect():
+                    # 重连成功
+                    self._successful_reconnects += 1
+                    self._current_reconnect_delay = self._initial_reconnect_delay
+                    self._consecutive_failures = 0
+                    self._failure_timestamps.clear()
+                    
+                    logger.info(
+                        f"自动重连成功! (成功 {self._successful_reconnects}/{self._total_reconnects})"
+                    )
+                    
+                    # 记录重连事件到日志
+                    self._log_reconnect_event(True, attempt, delay)
+                    
+                    return True
+                else:
+                    logger.warning(f"重连尝试 {attempt} 失败")
+            
+            # 所有重连尝试都失败
+            logger.error(
+                f"自动重连失败: 已尝试 {max_attempts} 次"
+            )
+            self._log_reconnect_event(False, attempt, delay)
+            return False
+            
+        except asyncio.CancelledError:
+            logger.info("重连操作被取消")
+            return False
+        except Exception as e:
+            logger.error(f"重连过程中发生异常: {e}")
+            return False
+        finally:
+            self._reconnecting = False
+            self._reconnect_requested.clear()
+    
+    def _log_reconnect_event(self, success: bool, attempts: int, final_delay: float):
+        """
+        记录重连事件到日志系统
+        
+        参数:
+            success: 重连是否成功
+            attempts: 尝试次数
+            final_delay: 最终延迟时间
+        """
+        log_level = logging.INFO if success else logging.WARNING
+        
+        logger.log(
+            log_level,
+            f"[重连事件] 成功={success}, 尝试次数={attempts}, "
+            f"最终延迟={final_delay:.1f}s, "
+            f"原因='{self._last_failure_reason}', "
+            f"总重连次数={self._total_reconnects}, "
+            f"成功重连次数={self._successful_reconnects}"
+        )
+    
+    def get_reconnect_stats(self) -> dict:
+        """
+        获取重连统计信息
+        
+        返回:
+            dict: 重连统计信息字典
+        """
+        return {
+            'total_reconnects': self._total_reconnects,
+            'successful_reconnects': self._successful_reconnects,
+            'consecutive_failures': self._consecutive_failures,
+            'last_failure_reason': self._last_failure_reason,
+            'last_reconnect_time': self._last_reconnect_time,
+            'current_reconnect_delay': self._current_reconnect_delay,
+            'is_reconnecting': self._reconnecting,
+        }
+    
+    def configure_reconnect(
+        self,
+        consecutive_failures_threshold: int = None,
+        initial_reconnect_delay: float = None,
+        max_reconnect_delay: float = None,
+        failure_window_seconds: float = None
+    ):
+        """
+        配置重连参数
+        
+        参数:
+            consecutive_failures_threshold: 触发重连的连续失败次数阈值
+            initial_reconnect_delay: 初始重连延迟（秒）
+            max_reconnect_delay: 最大重连延迟（秒）
+            failure_window_seconds: 失败计数窗口（秒）
+        """
+        if consecutive_failures_threshold is not None:
+            self._consecutive_failures_threshold = max(1, consecutive_failures_threshold)
+        if initial_reconnect_delay is not None:
+            self._initial_reconnect_delay = max(0.1, initial_reconnect_delay)
+        if max_reconnect_delay is not None:
+            self._max_reconnect_delay = max(self._initial_reconnect_delay, max_reconnect_delay)
+        if failure_window_seconds is not None:
+            self._failure_window_seconds = max(1.0, failure_window_seconds)
+        
+        logger.info(
+            f"重连配置已更新: 阈值={self._consecutive_failures_threshold}, "
+            f"初始延迟={self._initial_reconnect_delay}s, "
+            f"最大延迟={self._max_reconnect_delay}s, "
+            f"窗口={self._failure_window_seconds}s"
+        )
 
     async def _smtp_handshake(self) -> bool:
         """
@@ -370,7 +627,44 @@ class TunnelClient:
         asyncio.create_task(self._receiver_loop())
         asyncio.create_task(self._report_stats())
         asyncio.create_task(self._cleanup_zombie_channels())
-        asyncio.create_task(self._cleanup_stale_resources())  # 修复：添加过期资源清理任务
+        asyncio.create_task(self._cleanup_stale_resources())
+        asyncio.create_task(self._reconnect_monitor())  # 添加重连监控任务
+    
+    async def _reconnect_monitor(self):
+        """
+        重连监控任务
+        
+        监听重连请求信号，在检测到连续失败时自动触发重连
+        """
+        logger.info("重连监控任务已启动")
+        
+        while True:
+            try:
+                # 等待重连请求信号
+                await self._reconnect_requested.wait()
+                
+                if not self._reconnecting and self._should_trigger_reconnect():
+                    logger.warning("检测到重连请求，开始执行重连...")
+                    
+                    # 执行重连
+                    success = await self._perform_reconnect()
+                    
+                    if success:
+                        # 重连成功后重新启动接收器
+                        logger.info("重连成功，重新启动接收器")
+                        asyncio.create_task(self._receiver_loop())
+                    else:
+                        logger.error("重连失败，等待下次触发")
+                
+                # 清除信号
+                self._reconnect_requested.clear()
+                
+            except asyncio.CancelledError:
+                logger.info("重连监控任务被取消")
+                break
+            except Exception as e:
+                logger.error(f"重连监控任务异常: {e}")
+                await asyncio.sleep(1)  # 防止异常导致任务退出
 
     async def _receiver_loop(self):
         """
@@ -525,13 +819,20 @@ class TunnelClient:
         """
         self.total_connections += 1
         
+        # 检查是否正在重连
+        if self._reconnecting:
+            logger.warning("正在重连中,暂时无法打开新通道")
+            return 0, False
+        
         if not self.connected:
             logger.warning("未连接到服务器,无法打开通道")
+            self._record_channel_failure("服务器未连接")
             return 0, False
 
         # 检查通道数量限制
         if len(self.channels) >= self.max_channels:
             logger.error(f"通道数量超过限制: {len(self.channels)} >= {self.max_channels}")
+            self._record_channel_failure("通道数量超过限制")
             return 0, False
 
         # 分配新的通道ID（优先回收）
@@ -564,6 +865,7 @@ class TunnelClient:
             self.connect_events.pop(channel_id, None)
             self.connect_results.pop(channel_id, None)
             self.failed_connections += 1
+            self._record_channel_failure(f"发送连接请求失败: {e}")
             return channel_id, False
 
         # 减少超时时间: 30 秒 -> 10 秒
@@ -572,9 +874,11 @@ class TunnelClient:
             success = self.connect_results.get(channel_id, False)
             if success:
                 logger.info(f"通道 {channel_id} 打开成功")
+                self._record_channel_success()  # 记录成功，重置失败计数
             else:
                 logger.warning(f"通道 {channel_id} 打开失败")
                 self.failed_connections += 1
+                self._record_channel_failure("服务器拒绝连接")
                 # 修复：回收通道ID，防止资源泄漏
                 async with self.channel_lock:
                     if channel_id not in self.available_channel_ids:
@@ -584,6 +888,7 @@ class TunnelClient:
             logger.error(f"通道 {channel_id} 打开超时")
             success = False
             self.failed_connections += 1
+            self._record_channel_failure("等待服务器响应超时")
             # 通知服务器关闭连接
             try:
                 await self.send_frame(FRAME_CLOSE, channel_id, b'')
@@ -728,6 +1033,18 @@ class TunnelClient:
                            f"文件描述符={num_fds}, "
                            f"内存={memory_mb:.1f}MB, "
                            f"CPU={cpu_percent:.1f}%")
+                
+                # 添加重连统计
+                reconnect_stats = self.get_reconnect_stats()
+                if reconnect_stats['total_reconnects'] > 0:
+                    logger.info(
+                        f"重连统计: 总计={reconnect_stats['total_reconnects']}, "
+                        f"成功={reconnect_stats['successful_reconnects']}, "
+                        f"连续失败={reconnect_stats['consecutive_failures']}, "
+                        f"最后原因='{reconnect_stats['last_failure_reason']}', "
+                        f"当前延迟={reconnect_stats['current_reconnect_delay']:.1f}s, "
+                        f"重连中={reconnect_stats['is_reconnecting']}"
+                    )
             except asyncio.CancelledError:
                 break
             except Exception as e:
